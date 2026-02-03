@@ -12,20 +12,43 @@ use Karnoweb\Accounting\Models\FiscalYear;
 
 class DefaultAccountsSeeder extends Seeder
 {
+    /** Run the seeder. If config('accounting.seed.branch_id') is set, uses that branch and does not create one. */
     public function run(): void
     {
-        $branchModel = config('accounting.branch.model');
-        $branch = $branchModel && class_exists($branchModel)
-            ? $branchModel::updateOrCreate(
-                ['code' => 'HQ'],
-                [
-                    'title' => 'دفتر مرکزی',
-                    'is_active' => true,
-                    'is_default' => true,
-                ]
-            )
-            : null;
+        $branchId = config('accounting.seed.branch_id');
 
+        if ($branchId === null) {
+            $branchModel = config('accounting.branch.model');
+            $branch = $branchModel && class_exists($branchModel)
+                ? $branchModel::updateOrCreate(
+                    ['code' => 'HQ'],
+                    [
+                        'title' => 'دفتر مرکزی',
+                        'is_active' => true,
+                        'is_default' => true,
+                    ]
+                )
+                : null;
+            $branchId = $branch?->id;
+        }
+
+        $this->ensureFiscalYear();
+        $this->syncAccounts($branchId);
+    }
+
+    /**
+     * Sync default accounts and fiscal year for a given branch (e.g. when creating a new club/branch).
+     * Call this after creating a new branch so it gets the same chart of accounts.
+     */
+    public static function syncForBranch(int $branchId): void
+    {
+        $seeder = new self;
+        $seeder->ensureFiscalYear();
+        $seeder->syncAccounts($branchId);
+    }
+
+    private function ensureFiscalYear(): void
+    {
         $start = now()->startOfYear()->format('Y-m-d');
         $end = now()->endOfYear()->format('Y-m-d');
         $fiscalYear = FiscalYear::updateOrCreate(
@@ -37,13 +60,13 @@ class DefaultAccountsSeeder extends Seeder
             ]
         );
         FiscalYear::where('id', '!=', $fiscalYear->id)->update(['is_current' => false]);
-
-        $this->syncAccounts($branch?->id);
     }
 
     private function syncAccounts(?int $branchId): void
     {
-        $accounts = $this->defaultAccountsDefinition();
+        $defaults = $this->defaultAccountsDefinition();
+        $custom = config('accounting.account.custom_seed', []);
+        $accounts = array_merge($defaults, $custom);
 
         $byCode = [];
         foreach ($accounts as $row) {
@@ -54,7 +77,9 @@ class DefaultAccountsSeeder extends Seeder
                 $parentId = $row['parent_id'];
             }
 
-            $type = $row['type'];
+            $type = $row['type'] instanceof AccountType
+                ? $row['type']
+                : AccountType::from($row['type']);
             $nature = $type->defaultNature();
 
             $attributes = [
@@ -70,7 +95,10 @@ class DefaultAccountsSeeder extends Seeder
             ];
 
             $account = Account::updateOrCreate(
-                ['code' => $row['code']],
+                [
+                    'code' => $row['code'],
+                    'branch_id' => $branchId,
+                ],
                 $attributes
             );
 

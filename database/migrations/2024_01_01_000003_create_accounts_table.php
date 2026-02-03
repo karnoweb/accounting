@@ -14,8 +14,9 @@ return new class extends Migration {
         Schema::create($prefix . 'accounts', function (Blueprint $table) use ($prefix) {
             $table->id();
             $table->foreignId('parent_id')->nullable()->constrained($prefix . 'accounts')->nullOnDelete();
-            $table->foreignId('branch_id')->nullable()->constrained($prefix . 'branches')->nullOnDelete();
-            $table->string('code', 20)->unique();
+            $table->unsignedBigInteger('branch_id')->nullable();
+            $table->string('code', 20);
+            $table->unique(['code', 'branch_id']);
             $table->string('title', 255);
             $table->string('description', 500)->nullable();
             $table->unsignedTinyInteger('level')->default(0);

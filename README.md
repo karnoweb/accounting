@@ -70,17 +70,30 @@ php artisan vendor:publish --tag=accounting-lang
 
 فایل‌های زبان در `lang/vendor/accounting` قرار می‌گیرند (انگلیسی و فارسی).
 
-### سیدرها
+### سیدر پیش‌فرض حساب‌ها
 
-```bash
-php artisan vendor:publish --tag=accounting-seeders
-```
+سیدر از داخل پکیج فراخوانی می‌شود؛ نیازی به publish کردن فایل سیدر نیست. حساب‌های اختصاصی از `config/accounting.php` → `account.custom_seed` خوانده می‌شوند.
 
-سیدر پیش‌فرض حساب‌ها و ساختار اولیه در `database/seeders` کپی می‌شود. در `DatabaseSeeder` یا سیدر دلخواه آن را فراخوانی کنید:
+در `DatabaseSeeder` یا سیدر دلخواه:
 
 ```php
-$this->call(\Database\Seeders\DefaultAccountsSeeder::class);
+$this->call(\Karnoweb\Accounting\Database\Seeders\DefaultAccountsSeeder::class);
 ```
+
+یا برای یک شعبه مشخص: `DefaultAccountsSeeder::syncForBranch($branchId);`
+
+### حساب‌های اضافی (کاربر / پروژه)
+
+- **در سید:** در `config/accounting.php` آرایهٔ `account.custom_seed` را پر کنید تا همراه پیش‌فرض‌ها سینک شوند. هر عنصر مثل تعریف پیش‌فرض: `code`, `title`, `level`, `type` (مقدار enum مثل `asset`)، و `parent_code` یا `parent_id`. مثال:
+
+```php
+'custom_seed' => [
+    ['code' => '110102', 'title' => 'صندوق فروشگاه', 'level' => 3, 'type' => 'asset', 'parent_code' => '1101'],
+    ['code' => '110202', 'title' => 'بانک دوم', 'level' => 3, 'type' => 'asset', 'parent_code' => '1102'],
+],
+```
+
+- **در زمان اجرا:** کاربر می‌تواند حساب جدید با `Accounting::account()->create([...])` اضافه کند (کد یکتا، والد با `parent_id` یا `parent_code`).
 
 ### پابلیش همه دارایی‌های پکیج
 
@@ -97,6 +110,7 @@ php artisan vendor:publish --provider="Karnoweb\Accounting\AccountingServiceProv
    - `accounting.general.prefix` — پیشوند جداول حسابداری (پیش‌فرض: `acc_`؛ جداول: `acc_branches`, `acc_accounts`, …)
    - `accounting.user.model` — مدل کاربر (برای `created_by`, `posted_by`)
    - `accounting.branch.default_id` — شعبه پیش‌فرض
+   - `accounting.account.custom_seed` — تعریف حساب‌های اضافی که همراه سیدر پیش‌فرض سینک می‌شوند
    - `accounting.account.system_accounts` — کد حساب‌های سیستمی (صندوق، بانک، دریافتنی، پرداختنی و …)
    - `accounting.document.allowed_types` — انواع مجاز سند
 

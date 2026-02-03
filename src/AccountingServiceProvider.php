@@ -76,10 +76,6 @@ class AccountingServiceProvider extends ServiceProvider
             $this->publishes([
                 __DIR__ . '/../lang' => lang_path('vendor/accounting'),
             ], 'accounting-lang');
-
-            $this->publishes([
-                __DIR__ . '/../database/seeders' => database_path('seeders'),
-            ], 'accounting-seeders');
         }
     }
 }

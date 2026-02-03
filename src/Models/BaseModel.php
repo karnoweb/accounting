@@ -14,6 +14,6 @@ abstract class BaseModel extends Model
         $prefix = config('accounting.general.prefix', 'acc_');
         $table = $this->table ?? str_replace('\\', '', Str::snake(Str::plural(class_basename($this))));
 
-        return $prefix . $table;
+        return str_starts_with($table, $prefix) ? $table : $prefix . $table;
     }
 }

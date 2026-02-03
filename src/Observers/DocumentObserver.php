@@ -14,6 +14,9 @@ use Karnoweb\Accounting\Services\BalanceService;
 
 class DocumentObserver
 {
+    /** @var array<int, DocumentStatus|null> */
+    private static array $oldStatusByDocumentId = [];
+
     public function __construct(
         private BalanceService $balanceService
     ) {}
@@ -25,13 +28,16 @@ class DocumentObserver
 
     public function updating(Document $document): void
     {
-        $document->_oldValues = $document->getOriginal();
-        $document->_oldStatus = DocumentStatus::tryFrom($document->getOriginal('status'));
+        $statusRaw = $document->getOriginal('status');
+        self::$oldStatusByDocumentId[$document->id] = $statusRaw instanceof DocumentStatus
+            ? $statusRaw
+            : DocumentStatus::tryFrom((string) $statusRaw);
     }
 
     public function updated(Document $document): void
     {
-        $oldStatus = $document->_oldStatus ?? null;
+        $oldStatus = self::$oldStatusByDocumentId[$document->id] ?? null;
+        unset(self::$oldStatusByDocumentId[$document->id]);
         $newStatus = $document->status;
 
         if ($oldStatus && $oldStatus !== $newStatus) {

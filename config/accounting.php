@@ -25,6 +25,7 @@ return [
     'branch' => [
         'enabled' => true,
         'model' => env('ACCOUNTING_BRANCH_MODEL', App\Models\Branch::class),
+        'table' => env('ACCOUNTING_BRANCH_TABLE', 'branches'),
         'foreign_key' => 'branch_id',
         'default_id' => 1,
         'separate_numbering' => false,
@@ -34,6 +35,7 @@ return [
     'account' => [
         'code_length' => [1, 2, 4, 6],
         'auto_code' => true,
+        'custom_seed' => [],
         'system_accounts' => [
             'cash' => '110101',
             'bank' => '110201',

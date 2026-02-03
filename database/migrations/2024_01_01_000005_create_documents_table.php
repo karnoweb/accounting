@@ -16,7 +16,7 @@ return new class extends Migration {
         Schema::create($prefix . 'documents', function (Blueprint $table) use ($prefix) {
             $table->id();
             $table->foreignId('fiscal_year_id')->constrained($prefix . 'fiscal_years')->restrictOnDelete();
-            $table->foreignId('branch_id')->nullable()->constrained($prefix . 'branches')->nullOnDelete();
+            $table->unsignedBigInteger('branch_id')->nullable();
             $table->unsignedBigInteger('number');
             $table->string('reference', 50)->nullable();
             $table->date('date');
