@@ -1,0 +1,9 @@
+/vendor
+/.phpunit.cache
+.phpunit.result.cache
+composer.lock
+.env
+.env.*
+.idea
+.fleet
+*.phpstorm.meta.php
