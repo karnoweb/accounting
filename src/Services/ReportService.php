@@ -6,6 +6,9 @@ namespace Karnoweb\Accounting\Services;
 
 use Karnoweb\Accounting\Models\FiscalYear;
 
+/**
+ * Service for accounting reports (trial balance, etc.).
+ */
 class ReportService
 {
     public function __construct(
@@ -13,6 +16,11 @@ class ReportService
         private AccountService $accountService
     ) {}
 
+    /**
+     * Trial balance: list of leaf accounts (level 3) with non-zero balance, debit and credit columns.
+     *
+     * @return array<int, array{account: \Karnoweb\Accounting\Models\Account, debit: float, credit: float}>
+     */
     public function trialBalance(?FiscalYear $fiscalYear = null): array
     {
         $fiscalYear ??= FiscalYear::current();

@@ -9,10 +9,12 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
-        Schema::create('accounts', function (Blueprint $table) {
+        $prefix = config('accounting.general.prefix', 'acc_');
+
+        Schema::create($prefix . 'accounts', function (Blueprint $table) use ($prefix) {
             $table->id();
-            $table->foreignId('parent_id')->nullable()->constrained('accounts')->nullOnDelete();
-            $table->foreignId('branch_id')->nullable()->constrained('branches')->nullOnDelete();
+            $table->foreignId('parent_id')->nullable()->constrained($prefix . 'accounts')->nullOnDelete();
+            $table->foreignId('branch_id')->nullable()->constrained($prefix . 'branches')->nullOnDelete();
             $table->string('code', 20)->unique();
             $table->string('title', 255);
             $table->string('description', 500)->nullable();
@@ -38,6 +40,6 @@ return new class extends Migration {
 
     public function down(): void
     {
-        Schema::dropIfExists('accounts');
+        Schema::dropIfExists(config('accounting.general.prefix', 'acc_') . 'accounts');
     }
 };

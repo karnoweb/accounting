@@ -9,11 +9,13 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
-        Schema::create('document_items', function (Blueprint $table) {
+        $prefix = config('accounting.general.prefix', 'acc_');
+
+        Schema::create($prefix . 'document_items', function (Blueprint $table) use ($prefix) {
             $table->id();
-            $table->foreignId('document_id')->constrained('documents')->cascadeOnDelete();
-            $table->foreignId('account_id')->constrained('accounts')->restrictOnDelete();
-            $table->foreignId('cost_center_id')->nullable()->constrained('cost_centers')->nullOnDelete();
+            $table->foreignId('document_id')->constrained($prefix . 'documents')->cascadeOnDelete();
+            $table->foreignId('account_id')->constrained($prefix . 'accounts')->restrictOnDelete();
+            $table->foreignId('cost_center_id')->nullable()->constrained($prefix . 'cost_centers')->nullOnDelete();
             $table->decimal('amount', 15, 2);
             $table->tinyInteger('sign');
             $table->decimal('debit', 15, 2)->default(0);
@@ -28,6 +30,6 @@ return new class extends Migration {
 
     public function down(): void
     {
-        Schema::dropIfExists('document_items');
+        Schema::dropIfExists(config('accounting.general.prefix', 'acc_') . 'document_items');
     }
 };

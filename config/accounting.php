@@ -6,7 +6,7 @@ return [
     'enabled' => env('ACCOUNTING_ENABLED', true),
 
     'general' => [
-        'prefix' => env('ACCOUNTING_TABLE_PREFIX', ''),
+        'prefix' => env('ACCOUNTING_TABLE_PREFIX', 'acc_'),
         'date_format' => 'Y-m-d',
         'decimal_places' => 2,
     ],
@@ -24,6 +24,8 @@ return [
 
     'branch' => [
         'enabled' => true,
+        'model' => env('ACCOUNTING_BRANCH_MODEL', App\Models\Branch::class),
+        'foreign_key' => 'branch_id',
         'default_id' => 1,
         'separate_numbering' => false,
         'resolver' => null,

@@ -6,12 +6,11 @@ namespace Karnoweb\Accounting\Models;
 
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Karnoweb\Accounting\Enums\FiscalYearStatus;
 
-class FiscalYear extends Model
+class FiscalYear extends BaseModel
 {
     use SoftDeletes;
 

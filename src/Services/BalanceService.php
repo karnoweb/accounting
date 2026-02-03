@@ -11,8 +11,12 @@ use Karnoweb\Accounting\Models\Document;
 use Karnoweb\Accounting\Models\DocumentItem;
 use Karnoweb\Accounting\Models\FiscalYear;
 
+/**
+ * Service for account balances: current balance, balance as-of date, debit/credit totals, turnover, and cache refresh.
+ */
 class BalanceService
 {
+    /** Get account balance for a fiscal year. Uses cache when valid unless forceRealtime is true. */
     public function getBalance(Account|int $account, ?FiscalYear $fiscalYear = null, bool $forceRealtime = false): float
     {
         $account = $this->resolveAccount($account);
@@ -24,6 +28,7 @@ class BalanceService
         return $this->calculateRealtime($account, $fiscalYear);
     }
 
+    /** Calculate balance from posted document items (ignores cache). */
     public function calculateRealtime(Account|int $account, ?FiscalYear $fiscalYear = null): float
     {
         $account = $this->resolveAccount($account);
@@ -40,6 +45,7 @@ class BalanceService
         return (float) $query->selectRaw('COALESCE(SUM(amount * sign), 0) as balance')->value('balance');
     }
 
+    /** Get account balance as of a given date (posted items with date <= date). */
     public function getBalanceAsOf(Account|int $account, Carbon|string $date, ?FiscalYear $fiscalYear = null): float
     {
         $account = $this->resolveAccount($account);
@@ -58,6 +64,7 @@ class BalanceService
         return (float) $query->selectRaw('COALESCE(SUM(amount * sign), 0) as balance')->value('balance');
     }
 
+    /** Sum of debit amounts (sign = 1) for the account in the fiscal year. */
     public function getDebitTotal(Account|int $account, ?FiscalYear $fiscalYear = null): float
     {
         $account = $this->resolveAccount($account);
@@ -75,6 +82,7 @@ class BalanceService
         return (float) $query->sum('amount');
     }
 
+    /** Sum of credit amounts (sign = -1) for the account in the fiscal year. */
     public function getCreditTotal(Account|int $account, ?FiscalYear $fiscalYear = null): float
     {
         $account = $this->resolveAccount($account);
@@ -92,6 +100,11 @@ class BalanceService
         return (float) $query->sum('amount');
     }
 
+    /**
+     * Get debit, credit and balance (debit - credit) for the account in a date range.
+     *
+     * @return array{debit: float, credit: float, balance: float}
+     */
     public function getTurnover(Account|int $account, Carbon|string $fromDate, Carbon|string $toDate): array
     {
         $account = $this->resolveAccount($account);
@@ -130,6 +143,7 @@ class BalanceService
         return $balance;
     }
 
+    /** Update cached balances for all accounts affected by a posted document (and optionally parent chain). */
     public function updateAfterDocument(Document $document): void
     {
         $affectedAccountIds = $document->items->pluck('account_id')->unique();
@@ -155,6 +169,7 @@ class BalanceService
         }
     }
 
+    /** Reverse cached balance deltas for all accounts affected by a document (e.g. when voiding). */
     public function reverseDocument(Document $document): void
     {
         $affectedAccountIds = $document->items->pluck('account_id')->unique();

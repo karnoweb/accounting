@@ -63,6 +63,7 @@ class AccountingServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
         $this->loadTranslationsFrom(__DIR__ . '/../lang', 'accounting');
 
         Document::observe(DocumentObserver::class);
@@ -71,10 +72,6 @@ class AccountingServiceProvider extends ServiceProvider
             $this->publishes([
                 __DIR__ . '/../config/accounting.php' => config_path('accounting.php'),
             ], 'accounting-config');
-
-            $this->publishes([
-                __DIR__ . '/../database/migrations' => database_path('migrations'),
-            ], 'accounting-migrations');
 
             $this->publishes([
                 __DIR__ . '/../lang' => lang_path('vendor/accounting'),

@@ -7,7 +7,6 @@ namespace Karnoweb\Accounting\Services;
 use Exception;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
-use RuntimeException;
 use Karnoweb\Accounting\Enums\DocumentStatus;
 use Karnoweb\Accounting\Exceptions\ClosedFiscalYearException;
 use Karnoweb\Accounting\Exceptions\InactiveAccountException;
@@ -16,6 +15,7 @@ use Karnoweb\Accounting\Models\Account;
 use Karnoweb\Accounting\Models\Document;
 use Karnoweb\Accounting\Models\DocumentItem;
 use Karnoweb\Accounting\Models\FiscalYear;
+use RuntimeException;
 
 class DocumentService
 {

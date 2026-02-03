@@ -9,13 +9,14 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
+        $prefix = config('accounting.general.prefix', 'acc_');
         $userTable = config('accounting.user.table', 'users');
         $userForeignKey = config('accounting.user.foreign_key', 'user_id');
 
-        Schema::create('documents', function (Blueprint $table) {
+        Schema::create($prefix . 'documents', function (Blueprint $table) use ($prefix) {
             $table->id();
-            $table->foreignId('fiscal_year_id')->constrained('fiscal_years')->restrictOnDelete();
-            $table->foreignId('branch_id')->nullable()->constrained('branches')->nullOnDelete();
+            $table->foreignId('fiscal_year_id')->constrained($prefix . 'fiscal_years')->restrictOnDelete();
+            $table->foreignId('branch_id')->nullable()->constrained($prefix . 'branches')->nullOnDelete();
             $table->unsignedBigInteger('number');
             $table->string('reference', 50)->nullable();
             $table->date('date');
@@ -40,7 +41,7 @@ return new class extends Migration {
         });
 
         if (Schema::hasTable($userTable)) {
-            Schema::table('documents', function (Blueprint $table) use ($userTable) {
+            Schema::table($prefix . 'documents', function (Blueprint $table) use ($userTable) {
                 $table->foreign('created_by')->references('id')->on($userTable)->nullOnDelete();
                 $table->foreign('approved_by')->references('id')->on($userTable)->nullOnDelete();
                 $table->foreign('posted_by')->references('id')->on($userTable)->nullOnDelete();
@@ -50,6 +51,6 @@ return new class extends Migration {
 
     public function down(): void
     {
-        Schema::dropIfExists('documents');
+        Schema::dropIfExists(config('accounting.general.prefix', 'acc_') . 'documents');
     }
 };

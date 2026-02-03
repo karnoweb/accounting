@@ -7,11 +7,24 @@ namespace Karnoweb\Accounting\Services;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Karnoweb\Accounting\Models\Account;
-use Karnoweb\Accounting\Models\Branch;
 use Karnoweb\Accounting\Models\CostCenter;
 use Karnoweb\Accounting\Models\Document;
 use Karnoweb\Accounting\Models\FiscalYear;
 
+/**
+ * Fluent builder for creating and posting accounting documents.
+ *
+ * Chain type, date, branch, fiscal year, source, then debit/credit lines; end with save() or post().
+ *
+ * @example
+ * Accounting::document()
+ *     ->type('receipt')
+ *     ->date(now())
+ *     ->branch($branchId)
+ *     ->debit(Accounting::systemAccount('cash'), 1000)
+ *     ->credit(Accounting::systemAccount('receivables'), 1000)
+ *     ->save();
+ */
 class DocumentBuilder
 {
     private string $type = 'adjustment';
@@ -45,6 +58,7 @@ class DocumentBuilder
         $this->date = now()->toDateString();
     }
 
+    /** Set document type (e.g. 'sale', 'purchase', 'receipt', 'payment', 'transfer', 'adjustment'). */
     public function type(string $type): self
     {
         $this->type = $type;
@@ -52,6 +66,7 @@ class DocumentBuilder
         return $this;
     }
 
+    /** Set document date. */
     public function date(Carbon|string $date): self
     {
         $this->date = $date instanceof Carbon ? $date->toDateString() : $date;
@@ -59,6 +74,7 @@ class DocumentBuilder
         return $this;
     }
 
+    /** Set document description. */
     public function description(string $description): self
     {
         $this->description = $description;
@@ -66,6 +82,7 @@ class DocumentBuilder
         return $this;
     }
 
+    /** Set internal notes. */
     public function notes(string $notes): self
     {
         $this->notes = $notes;
@@ -73,6 +90,7 @@ class DocumentBuilder
         return $this;
     }
 
+    /** Set external reference (e.g. invoice number). */
     public function reference(string $reference): self
     {
         $this->reference = $reference;
@@ -80,13 +98,15 @@ class DocumentBuilder
         return $this;
     }
 
-    public function branch(Branch|Model|int $branch): self
+    /** Set branch (model or id). Omit to use config default or null. */
+    public function branch(Model|int $branch): self
     {
         $this->branchId = $branch instanceof Model ? $branch->getKey() : (int) $branch;
 
         return $this;
     }
 
+    /** Set fiscal year (model or id). Omit to use current fiscal year. */
     public function fiscalYear(FiscalYear|int $fiscalYear): self
     {
         $this->fiscalYearId = $fiscalYear instanceof FiscalYear ? $fiscalYear->id : (int) $fiscalYear;
@@ -94,6 +114,7 @@ class DocumentBuilder
         return $this;
     }
 
+    /** Set source model for polymorphic link (e.g. Order, Invoice). */
     public function source(Model $model): self
     {
         $this->sourceType = $model->getMorphClass();
@@ -102,6 +123,11 @@ class DocumentBuilder
         return $this;
     }
 
+    /**
+     * Set arbitrary meta array for the document.
+     *
+     * @param array<string, mixed> $meta
+     */
     public function meta(array $meta): self
     {
         $this->meta = $meta;
@@ -109,6 +135,7 @@ class DocumentBuilder
         return $this;
     }
 
+    /** Add a debit line (sign = 1). Optionally set description for this line. */
     public function debit(Account|int $account, float $amount, ?string $description = null): self
     {
         $this->addItem($account, $amount, 1, $description);
@@ -116,6 +143,7 @@ class DocumentBuilder
         return $this;
     }
 
+    /** Add a credit line (sign = -1). Optionally set description for this line. */
     public function credit(Account|int $account, float $amount, ?string $description = null): self
     {
         $this->addItem($account, $amount, -1, $description);
@@ -123,6 +151,7 @@ class DocumentBuilder
         return $this;
     }
 
+    /** Set cost center for the next debit/credit line (or the last one if already added). */
     public function costCenter(CostCenter|int|null $center): self
     {
         $this->lastItemCostCenterId = $center instanceof CostCenter ? $center->id : ($center !== null ? (int) $center : null);
@@ -135,11 +164,13 @@ class DocumentBuilder
         return $this;
     }
 
+    /** Create the document in draft status. Returns the created Document with items and account relations loaded. */
     public function save(): Document
     {
         return $this->documentService->create($this->toArray());
     }
 
+    /** Create the document and post it in one step. Returns the posted Document. */
     public function post(): Document
     {
         $document = $this->documentService->create($this->toArray());

@@ -9,7 +9,9 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
-        Schema::create('cost_centers', function (Blueprint $table) {
+        $prefix = config('accounting.general.prefix', 'acc_');
+
+        Schema::create($prefix . 'cost_centers', function (Blueprint $table) {
             $table->id();
             $table->string('code', 20)->unique();
             $table->string('title', 100);
@@ -23,6 +25,6 @@ return new class extends Migration {
 
     public function down(): void
     {
-        Schema::dropIfExists('cost_centers');
+        Schema::dropIfExists(config('accounting.general.prefix', 'acc_') . 'cost_centers');
     }
 };

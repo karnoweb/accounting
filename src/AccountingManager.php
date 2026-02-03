@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace Karnoweb\Accounting;
 
+use Illuminate\Database\Eloquent\Model;
+use InvalidArgumentException;
 use Karnoweb\Accounting\Models\Account;
-use Karnoweb\Accounting\Models\Branch;
 use Karnoweb\Accounting\Models\FiscalYear;
 use Karnoweb\Accounting\Services\AccountService;
 use Karnoweb\Accounting\Services\BalanceService;
@@ -13,6 +14,11 @@ use Karnoweb\Accounting\Services\DocumentBuilder;
 use Karnoweb\Accounting\Services\FiscalYearService;
 use Karnoweb\Accounting\Services\ReportService;
 
+/**
+ * Central manager for accounting services and context.
+ *
+ * Resolves documents, accounts, balances, reports, fiscal years, and branch/user context.
+ */
 class AccountingManager
 {
     public function __construct(
@@ -23,52 +29,74 @@ class AccountingManager
         protected FiscalYearService $fiscalYearService
     ) {}
 
+    /** Get the document builder for creating and posting documents (fluent API). */
     public function document(): DocumentBuilder
     {
         return $this->documentBuilder;
     }
 
+    /** Get the account service for CRUD and lookup of chart-of-accounts. */
     public function account(): AccountService
     {
         return $this->accountService;
     }
 
+    /** Get the balance service for account balances and turnover. */
     public function balance(): BalanceService
     {
         return $this->balanceService;
     }
 
+    /** Get the report service for trial balance and other reports. */
     public function report(): ReportService
     {
         return $this->reportService;
     }
 
+    /** Get the fiscal year service for resolving current or date-based fiscal year. */
     public function fiscalYear(): FiscalYearService
     {
         return $this->fiscalYearService;
     }
 
+    /** Get the currently active fiscal year, or null if none. */
     public function currentFiscalYear(): ?FiscalYear
     {
         return FiscalYear::current();
     }
 
-    public function currentBranch(): ?Branch
+    /**
+     * Get the default branch from config (by default_id or is_default), or null if branch is disabled.
+     *
+     * @return Model|null Instance of config('accounting.branch.model') or null
+     */
+    public function currentBranch(): ?Model
     {
         if ( ! config('accounting.branch.enabled', true)) {
             return null;
         }
 
+        $modelClass = config('accounting.branch.model');
+        if ( ! $modelClass || ! class_exists($modelClass)) {
+            return null;
+        }
+
         $id = config('accounting.branch.default_id');
 
-        return $id ? Branch::find($id) : Branch::where('is_default', true)->first();
+        return $id ? $modelClass::find($id) : $modelClass::where('is_default', true)->first();
     }
 
+    /**
+     * Get a system account by config key (e.g. 'cash', 'bank', 'receivables', 'payables', 'sales_income', 'cost_of_goods', 'refund_expense').
+     *
+     * @throws InvalidArgumentException When the key is not configured in accounting.account.system_accounts
+     */
     public function systemAccount(string $key): Account
     {
         return $this->accountService->getSystemAccount($key);
     }
 
+    /** Package version string. */
     public function version(): string
     {
         return '1.0.0';

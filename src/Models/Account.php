@@ -6,7 +6,6 @@ namespace Karnoweb\Accounting\Models;
 
 use Exception;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
@@ -15,7 +14,7 @@ use Karnoweb\Accounting\Enums\AccountNature;
 use Karnoweb\Accounting\Enums\AccountType;
 use Karnoweb\Accounting\Exceptions\SystemAccountException;
 
-class Account extends Model
+class Account extends BaseModel
 {
     use SoftDeletes;
 
@@ -106,7 +105,10 @@ class Account extends Model
 
     public function branch(): BelongsTo
     {
-        return $this->belongsTo(Branch::class);
+        return $this->belongsTo(
+            config('accounting.branch.model'),
+            config('accounting.branch.foreign_key', 'branch_id')
+        );
     }
 
     public function items(): HasMany

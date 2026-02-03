@@ -4,10 +4,9 @@ declare(strict_types=1);
 
 namespace Karnoweb\Accounting\Models;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class CostCenter extends Model
+class CostCenter extends BaseModel
 {
     protected $table = 'cost_centers';
 

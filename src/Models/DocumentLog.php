@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Karnoweb\Accounting\Models;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class DocumentLog extends Model
+class DocumentLog extends BaseModel
 {
     public $timestamps = false;
+
     protected $table = 'document_logs';
 
     protected $fillable = [

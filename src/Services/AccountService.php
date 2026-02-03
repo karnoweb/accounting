@@ -11,8 +11,16 @@ use Karnoweb\Accounting\Enums\AccountType;
 use Karnoweb\Accounting\Exceptions\AccountNotFoundException;
 use Karnoweb\Accounting\Models\Account;
 
+/**
+ * Service for chart-of-accounts: create, find, search, and resolve system accounts.
+ */
 class AccountService
 {
+    /**
+     * Create a new account. Parent can be given by parent_id or parent_code. Code can be auto-generated.
+     *
+     * @param array{parent_id?: int, parent_code?: string, code?: string, title: string, description?: string, type: string|AccountType, nature?: string, branch_id?: int|null, is_active?: bool, is_system?: bool, allow_direct_posting?: bool, entity_type?: string|null, entity_id?: int|null, meta?: array|null} $data
+     */
     public function create(array $data): Account
     {
         return DB::transaction(function () use ($data) {
@@ -55,21 +63,25 @@ class AccountService
         });
     }
 
+    /** Find account by id, or null if not found. */
     public function find(int $id): ?Account
     {
         return Account::find($id);
     }
 
+    /** Find account by id, or throw ModelNotFoundException. */
     public function findOrFail(int $id): Account
     {
         return Account::findOrFail($id);
     }
 
+    /** Find account by code, or null if not found. */
     public function findByCode(string $code): ?Account
     {
         return Account::where('code', $code)->first();
     }
 
+    /** Find account by code, or throw AccountNotFoundException. */
     public function findByCodeOrFail(string $code): Account
     {
         $account = $this->findByCode($code);
@@ -81,6 +93,7 @@ class AccountService
         return $account;
     }
 
+    /** Find account linked to an entity (morph: entity_type, entity_id). */
     public function findByEntity(string $entityType, int $entityId): ?Account
     {
         return Account::where('entity_type', $entityType)
@@ -88,6 +101,11 @@ class AccountService
             ->first();
     }
 
+    /**
+     * Get system account by config key (e.g. 'cash', 'bank', 'receivables', 'payables', 'sales_income', 'cost_of_goods', 'refund_expense').
+     *
+     * @throws InvalidArgumentException When key is not in accounting.account.system_accounts
+     */
     public function getSystemAccount(string $key): Account
     {
         $code = config("accounting.account.system_accounts.{$key}");
@@ -99,6 +117,12 @@ class AccountService
         return $this->findByCodeOrFail($code);
     }
 
+    /**
+     * Search accounts by query (title/code), type, level, is_active. Returns collection ordered by code.
+     *
+     * @param  array{query?: string, type?: string, level?: int, is_active?: bool} $filters
+     * @return Collection<int, Account>
+     */
     public function search(array $filters): Collection
     {
         $query = Account::query();

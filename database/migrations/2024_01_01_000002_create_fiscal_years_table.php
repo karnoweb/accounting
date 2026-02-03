@@ -9,7 +9,9 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
-        Schema::create('fiscal_years', function (Blueprint $table) {
+        $prefix = config('accounting.general.prefix', 'acc_');
+
+        Schema::create($prefix . 'fiscal_years', function (Blueprint $table) {
             $table->id();
             $table->string('title', 100);
             $table->date('start_date');
@@ -29,6 +31,6 @@ return new class extends Migration {
 
     public function down(): void
     {
-        Schema::dropIfExists('fiscal_years');
+        Schema::dropIfExists(config('accounting.general.prefix', 'acc_') . 'fiscal_years');
     }
 };

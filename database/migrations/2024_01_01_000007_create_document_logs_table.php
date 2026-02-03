@@ -9,11 +9,12 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
+        $prefix = config('accounting.general.prefix', 'acc_');
         $userTable = config('accounting.user.table', 'users');
 
-        Schema::create('document_logs', function (Blueprint $table) {
+        Schema::create($prefix . 'document_logs', function (Blueprint $table) use ($prefix) {
             $table->id();
-            $table->foreignId('document_id')->constrained('documents')->cascadeOnDelete();
+            $table->foreignId('document_id')->constrained($prefix . 'documents')->cascadeOnDelete();
             $table->unsignedBigInteger('user_id')->nullable();
             $table->string('action', 20);
             $table->string('description', 255)->nullable();
@@ -28,7 +29,7 @@ return new class extends Migration {
         });
 
         if (Schema::hasTable($userTable)) {
-            Schema::table('document_logs', function (Blueprint $table) use ($userTable) {
+            Schema::table($prefix . 'document_logs', function (Blueprint $table) use ($userTable) {
                 $table->foreign('user_id')->references('id')->on($userTable)->nullOnDelete();
             });
         }
@@ -36,6 +37,6 @@ return new class extends Migration {
 
     public function down(): void
     {
-        Schema::dropIfExists('document_logs');
+        Schema::dropIfExists(config('accounting.general.prefix', 'acc_') . 'document_logs');
     }
 };

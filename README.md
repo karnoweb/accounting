@@ -94,6 +94,7 @@ php artisan vendor:publish --provider="Karnoweb\Accounting\AccountingServiceProv
 
 1. بعد از مایگریشن، حداقل یک **شعبه** و یک **سال مالی** با وضعیت فعال داشته باشید (مثلاً با `DefaultAccountsSeeder`).
 2. در `config/accounting.php` در صورت نیاز مقادیر زیر را تنظیم کنید:
+   - `accounting.general.prefix` — پیشوند جداول حسابداری (پیش‌فرض: `acc_`؛ جداول: `acc_branches`, `acc_accounts`, …)
    - `accounting.user.model` — مدل کاربر (برای `created_by`, `posted_by`)
    - `accounting.branch.default_id` — شعبه پیش‌فرض
    - `accounting.account.system_accounts` — کد حساب‌های سیستمی (صندوق، بانک، دریافتنی، پرداختنی و …)

@@ -8,45 +8,80 @@ use Illuminate\Database\Seeder;
 use Karnoweb\Accounting\Enums\AccountType;
 use Karnoweb\Accounting\Enums\FiscalYearStatus;
 use Karnoweb\Accounting\Models\Account;
-use Karnoweb\Accounting\Models\Branch;
 use Karnoweb\Accounting\Models\FiscalYear;
 
 class DefaultAccountsSeeder extends Seeder
 {
     public function run(): void
     {
-        $branch = Branch::firstOrCreate(
-            ['code' => 'HQ'],
+        $branchModel = config('accounting.branch.model');
+        $branch = $branchModel && class_exists($branchModel)
+            ? $branchModel::updateOrCreate(
+                ['code' => 'HQ'],
+                [
+                    'title' => 'دفتر مرکزی',
+                    'is_active' => true,
+                    'is_default' => true,
+                ]
+            )
+            : null;
+
+        $start = now()->startOfYear()->format('Y-m-d');
+        $end = now()->endOfYear()->format('Y-m-d');
+        $fiscalYear = FiscalYear::updateOrCreate(
+            ['start_date' => $start, 'end_date' => $end],
             [
-                'title' => 'دفتر مرکزی',
-                'is_active' => true,
-                'is_default' => true,
+                'title' => 'سال مالی ' . now()->year,
+                'status' => FiscalYearStatus::ACTIVE,
+                'is_current' => true,
             ]
         );
+        FiscalYear::where('id', '!=', $fiscalYear->id)->update(['is_current' => false]);
 
-        if (FiscalYear::where('is_current', true)->doesntExist()) {
-            $start = now()->startOfYear()->format('Y-m-d');
-            $end = now()->endOfYear()->format('Y-m-d');
-            FiscalYear::firstOrCreate(
-                ['start_date' => $start, 'end_date' => $end],
-                [
-                    'title' => 'سال مالی ' . now()->year,
-                    'status' => FiscalYearStatus::ACTIVE,
-                    'is_current' => true,
-                ]
-            );
-        }
-
-        if (Account::where('code', '1')->exists()) {
-            return;
-        }
-
-        $this->createAccounts($branch->id);
+        $this->syncAccounts($branch?->id);
     }
 
-    private function createAccounts(?int $branchId): void
+    private function syncAccounts(?int $branchId): void
     {
-        $accounts = [
+        $accounts = $this->defaultAccountsDefinition();
+
+        $byCode = [];
+        foreach ($accounts as $row) {
+            $parentId = null;
+            if (isset($row['parent_code'])) {
+                $parentId = $byCode[$row['parent_code']] ?? null;
+            } elseif (isset($row['parent_id'])) {
+                $parentId = $row['parent_id'];
+            }
+
+            $type = $row['type'];
+            $nature = $type->defaultNature();
+
+            $attributes = [
+                'parent_id' => $parentId,
+                'branch_id' => $branchId,
+                'title' => $row['title'],
+                'level' => $row['level'],
+                'type' => $type->value,
+                'nature' => $nature->value,
+                'is_active' => true,
+                'is_system' => $row['is_system'] ?? false,
+                'allow_direct_posting' => $row['level'] === 3,
+            ];
+
+            $account = Account::updateOrCreate(
+                ['code' => $row['code']],
+                $attributes
+            );
+
+            $byCode[$row['code']] = $account->id;
+        }
+    }
+
+    /** @return array<int, array{code: string, title: string, level: int, type: AccountType, parent_id?: null, parent_code?: string, is_system?: bool}> */
+    private function defaultAccountsDefinition(): array
+    {
+        return [
             ['code' => '1', 'title' => 'دارایی‌ها', 'level' => 0, 'type' => AccountType::ASSET, 'parent_id' => null],
             ['code' => '2', 'title' => 'بدهی‌ها', 'level' => 0, 'type' => AccountType::LIABILITY, 'parent_id' => null],
             ['code' => '3', 'title' => 'سرمایه', 'level' => 0, 'type' => AccountType::EQUITY, 'parent_id' => null],
@@ -70,33 +105,5 @@ class DefaultAccountsSeeder extends Seeder
             ['code' => '510101', 'title' => 'بهای تمام شده', 'level' => 3, 'type' => AccountType::EXPENSE, 'parent_code' => '5101', 'is_system' => true],
             ['code' => '520101', 'title' => 'هزینه استرداد', 'level' => 3, 'type' => AccountType::EXPENSE, 'parent_code' => '5201', 'is_system' => true],
         ];
-
-        $byCode = [];
-        foreach ($accounts as $row) {
-            $parentId = null;
-            if (isset($row['parent_code'])) {
-                $parentId = $byCode[$row['parent_code']] ?? null;
-            } elseif (isset($row['parent_id'])) {
-                $parentId = $row['parent_id'];
-            }
-
-            $type = $row['type'];
-            $nature = $type->defaultNature();
-
-            $account = Account::create([
-                'parent_id' => $parentId,
-                'branch_id' => $branchId,
-                'code' => $row['code'],
-                'title' => $row['title'],
-                'level' => $row['level'],
-                'type' => $type->value,
-                'nature' => $nature->value,
-                'is_active' => true,
-                'is_system' => $row['is_system'] ?? false,
-                'allow_direct_posting' => $row['level'] === 3,
-            ]);
-
-            $byCode[$row['code']] = $account->id;
-        }
     }
 }
