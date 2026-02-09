@@ -128,7 +128,14 @@ php artisan vendor:publish --provider="Karnoweb\Accounting\AccountingServiceProv
 - تریت `HasAccount` برای مدل‌های دارای حساب
 - رویدادها و استثناها
 
+** راهنمای کامل به زبان فارسی **
+
 ---
+
+**[راهنمای پکیج (کامل)](docs/00-index.md)** شامل تمام مستندات پکیج به زبان فارسی:
+
+**[مثال‌های کاربردی](docs/examples/shop/00-index.md)** شامل مثال‌های کاربردی برای سناریوهای فروشگاهی
+
 
 ## پابلیش پکیج (برای انتشار روی Packagist)
 
