@@ -8,11 +8,11 @@
 
 ## مقدمه
 
-این بخش شامل کد کامل Migration های پکیج حسابداری است. ترتیب اجرا بر اساس وابستگی جداول تعیین شده است.
+این بخش شامل نمونهٔ Migration های پکیج حسابداری است. ترتیب اجرا بر اساس وابستگی جداول تعیین شده است. **پکیج مایگریشن جدول `branches` ندارد**؛ فقط در جداول `accounts` و `documents` فیلد `branch_id` (nullable) تعریف می‌شود. در صورت نیاز، جدول شعبه را در **اپلیکیشن** ایجاد کنید.
 
----
+### نمونهٔ اختیاری: جدول branches در اپلیکیشن
 
-## ۱. Migration شعب (branches)
+اگر می‌خواهید جدول شعبه در اپ داشته باشید (برای رابطهٔ `branch()` و نمایش عنوان/کد شعبه):
 
 ```php
 <?php
@@ -23,36 +23,21 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::create('branches', function (Blueprint $table) {
             $table->id();
-            
-            // اطلاعات اصلی
             $table->string('code', 20)->unique();
             $table->string('title', 100);
-            
-            // وضعیت
             $table->boolean('is_active')->default(true);
             $table->boolean('is_default')->default(false);
-            
-            // اطلاعات اضافی
             $table->json('meta')->nullable();
-            
             $table->timestamps();
-            
-            // Indexes
             $table->index('is_active');
             $table->index('is_default');
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('branches');
@@ -60,9 +45,11 @@ return new class extends Migration
 };
 ```
 
+این مایگریشن جزو پکیج نیست؛ در صورت استفاده، آن را قبل از مایگریشن‌های پکیج (یا در اپ) اجرا کنید.
+
 ---
 
-## ۲. Migration سال‌های مالی (fiscal_years)
+## ۱. Migration سال‌های مالی (fiscal_years)
 
 ```php
 <?php
@@ -117,7 +104,7 @@ return new class extends Migration
 
 ---
 
-## ۳. Migration حساب‌ها (accounts)
+## ۲. Migration حساب‌ها (accounts)
 
 ```php
 <?php
@@ -201,7 +188,7 @@ return new class extends Migration
 
 ---
 
-## ۴. Migration مراکز هزینه (cost_centers)
+## ۳. Migration مراکز هزینه (cost_centers)
 
 ```php
 <?php
@@ -250,7 +237,7 @@ return new class extends Migration
 
 ---
 
-## ۵. Migration اسناد (documents)
+## ۴. Migration اسناد (documents)
 
 ```php
 <?php
@@ -358,7 +345,7 @@ return new class extends Migration
 
 ---
 
-## ۶. Migration آیتم‌های سند (document_items)
+## ۵. Migration آیتم‌های سند (document_items)
 
 ```php
 <?php
@@ -431,7 +418,7 @@ return new class extends Migration
 
 ---
 
-## ۷. Migration لاگ اسناد (document_logs)
+## ۶. Migration لاگ اسناد (document_logs)
 
 ```php
 <?php
@@ -516,7 +503,7 @@ return new class extends Migration
 
 ---
 
-## ۸. Migration خلاصه مانده حساب‌ها (account_balances) - اختیاری
+## ۷. Migration خلاصه مانده حساب‌ها (account_balances) - اختیاری
 
 ```php
 <?php
@@ -577,7 +564,7 @@ return new class extends Migration
 
 ---
 
-## ۹. Migration خلاصه ماهانه (account_monthly_summaries) - اختیاری
+## ۸. Migration خلاصه ماهانه (account_monthly_summaries) - اختیاری
 
 ```php
 <?php
@@ -636,7 +623,7 @@ return new class extends Migration
 
 ---
 
-## ۱۰. Migration ترجمه حساب‌ها (account_translations) - اختیاری
+## ۹. Migration ترجمه حساب‌ها (account_translations) - اختیاری
 
 ```php
 <?php
@@ -691,34 +678,31 @@ return new class extends Migration
 
 | ترتیب | فایل | وابستگی |
 |-------|------|---------|
-| ۱ | create_branches_table | - |
-| ۲ | create_fiscal_years_table | - |
-| ۳ | create_accounts_table | branches |
-| ۴ | create_cost_centers_table | - |
-| ۵ | create_documents_table | fiscal_years, branches |
-| ۶ | create_document_items_table | documents, accounts, cost_centers |
-| ۷ | create_document_logs_table | documents |
-| ۸ | create_account_balances_table | accounts, fiscal_years |
-| ۹ | create_account_monthly_summaries_table | accounts, fiscal_years |
-| ۱۰ | create_account_translations_table | accounts |
+| ۱ | create_fiscal_years_table | - |
+| ۲ | create_accounts_table | fiscal_years (فقط parent؛ branch_id بدون FK) |
+| ۳ | create_cost_centers_table | - |
+| ۴ | create_documents_table | fiscal_years |
+| ۵ | create_document_items_table | documents, accounts, cost_centers |
+| ۶ | create_document_logs_table | documents |
+| ۷ | create_account_balances_table | (اختیاری) accounts, fiscal_years |
+| ۸ | create_account_monthly_summaries_table | (اختیاری) accounts, fiscal_years |
+| ۹ | create_account_translations_table | (اختیاری) accounts |
 
 ---
 
 ## ۱۲. نام‌گذاری فایل‌ها
 
 ```
-database/migrations/
-├── 2024_01_01_000001_create_branches_table.php
+database/migrations/   (مایگریشن‌های پکیج)
 ├── 2024_01_01_000002_create_fiscal_years_table.php
 ├── 2024_01_01_000003_create_accounts_table.php
 ├── 2024_01_01_000004_create_cost_centers_table.php
 ├── 2024_01_01_000005_create_documents_table.php
 ├── 2024_01_01_000006_create_document_items_table.php
-├── 2024_01_01_000007_create_document_logs_table.php
-├── 2024_01_01_000008_create_account_balances_table.php
-├── 2024_01_01_000009_create_account_monthly_summaries_table.php
-└── 2024_01_01_000010_create_account_translations_table.php
+└── 2024_01_01_000007_create_document_logs_table.php
 ```
+
+جدول `branches` توسط پکیج ایجاد نمی‌شود؛ در صورت نیاز در اپلیکیشن مایگریشن جداگانه برای آن بنویسید.
 
 ---
 

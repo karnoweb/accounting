@@ -23,6 +23,8 @@ return [
     ],
 
     'branch' => [
+        // جدول/مدل شعبه توسط پکیج ایجاد نمی‌شود؛ فقط branch_id در accounts و documents ذخیره می‌شود.
+        // در صورت داشتن جدول Branch در اپ، model و table را تنظیم کنید تا رابطه branch() کار کند.
         'enabled' => true,
         'model' => env('ACCOUNTING_BRANCH_MODEL', App\Models\Branch::class),
         'table' => env('ACCOUNTING_BRANCH_TABLE', 'branches'),

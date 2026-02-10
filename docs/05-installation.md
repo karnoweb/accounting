@@ -19,7 +19,7 @@
 | مورد | حداقل نسخه | توصیه شده |
 |------|------------|-----------|
 | PHP | 8.2 | 8.3 |
-| Laravel | 12.x | 12.x |
+| Laravel | ^11.0 \| ^12.0 | 12.x |
 | MySQL | 8.0 | 8.0+ |
 | PostgreSQL (جایگزین) | 13 | 15+ |
 
@@ -83,11 +83,7 @@ php artisan vendor:publish --provider="YourVendor\Accounting\AccountingServicePr
 php artisan vendor:publish --tag="accounting-config"
 ```
 
-**فقط Migration ها:**
-
-```bash
-php artisan vendor:publish --tag="accounting-migrations"
-```
+**Migration ها:** مایگریشن‌های پکیج به‌صورت خودکار بارگذاری می‌شوند؛ نیازی به publish جداگانه نیست. پس از نصب، `php artisan migrate` را اجرا کنید.
 
 **فقط فایل‌های زبان:**
 
@@ -106,9 +102,9 @@ php artisan vendor:publish --tag="accounting-seeders"
 | تگ | مسیر مقصد | شرح |
 |----|-----------|-----|
 | accounting-config | config/accounting.php | تنظیمات پکیج |
-| accounting-migrations | database/migrations/ | فایل‌های Migration |
 | accounting-lang | lang/vendor/accounting/ | فایل‌های زبان |
-| accounting-seeders | database/seeders/ | Seeder حساب‌های پیش‌فرض |
+
+مایگریشن‌های پکیج از داخل پکیج بارگذاری می‌شوند و با `php artisan migrate` اجرا می‌گردند. جدول `branches` توسط پکیج ایجاد **نمی‌شود**؛ در صورت نیاز آن را در اپلیکیشن ایجاد کنید یا فقط از `config('accounting.branch.default_id')` استفاده کنید.
 
 ---
 
@@ -122,17 +118,18 @@ php artisan migrate
 
 ### ۴.۲ بررسی جداول ایجاد شده
 
-پس از اجرای Migration، جداول زیر باید ایجاد شده باشند:
+پس از اجرای Migration، پکیج فقط جداول زیر را ایجاد می‌کند (با پیشوند از config، مثلاً `acc_`):
 
 | جدول | شرح |
 |------|-----|
-| branches | شعب سازمان |
 | fiscal_years | سال‌های مالی |
 | accounts | حساب‌های مالی |
 | cost_centers | مراکز هزینه |
 | documents | اسناد حسابداری |
 | document_items | آیتم‌های اسناد |
 | document_logs | لاگ تغییرات |
+
+جدول `branches` توسط پکیج ساخته **نمی‌شود**؛ در accounts و documents فقط فیلد `branch_id` (nullable) وجود دارد. برای شعبه از `config('accounting.branch.default_id')` استفاده کنید یا جدول/مدل Branch را در اپلیکیشن تعریف کنید.
 
 ### ۴.۳ بررسی با Artisan
 
@@ -144,7 +141,6 @@ php artisan migrate:status
 
 | Migration | Batch |
 |-----------|-------|
-| 2024_01_01_000001_create_branches_table | 1 |
 | 2024_01_01_000002_create_fiscal_years_table | 1 |
 | 2024_01_01_000003_create_accounts_table | 1 |
 | 2024_01_01_000004_create_cost_centers_table | 1 |

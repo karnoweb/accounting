@@ -16,24 +16,27 @@
 
 ### ۱.۱ لیست جداول
 
+پکیج فقط جداول زیر را ایجاد می‌کند (با پیشوند از `config/accounting.general.prefix`، مثلاً `acc_`):
+
 | # | جدول | شرح | تعداد فیلد |
 |---|------|-----|------------|
-| ۱ | branches | شعب سازمان | ۸ |
-| ۲ | fiscal_years | سال‌های مالی | ۱۱ |
-| ۳ | accounts | حساب‌های مالی | ۱۸ |
-| ۴ | cost_centers | مراکز هزینه | ۸ |
-| ۵ | documents | اسناد حسابداری | ۱۷ |
-| ۶ | document_items | آیتم‌های اسناد | ۱۰ |
-| ۷ | document_logs | لاگ تغییرات اسناد | ۱۰ |
+| ۱ | fiscal_years | سال‌های مالی | ۱۱ |
+| ۲ | accounts | حساب‌های مالی | ۱۸ |
+| ۳ | cost_centers | مراکز هزینه | ۸ |
+| ۴ | documents | اسناد حسابداری | ۱۷ |
+| ۵ | document_items | آیتم‌های اسناد | ۱۰ |
+| ۶ | document_logs | لاگ تغییرات اسناد | ۱۰ |
+
+**جدول `branches` توسط پکیج ایجاد نمی‌شود.** در جداول `accounts` و `documents` فیلد **`branch_id`** (nullable) وجود دارد؛ در صورت نیاز، جدول/مدل شعبه را در اپلیکیشن تعریف کنید و شعبه پیش‌فرض را با `config('accounting.branch.default_id')` تنظیم کنید.
 
 ### ۱.۲ روابط بین جداول
 
 | جدول مبدا | جدول مقصد | نوع رابطه | فیلد کلید خارجی |
 |-----------|-----------|-----------|-----------------|
 | accounts | accounts | Self-referential | parent_id |
-| accounts | branches | Many to One | branch_id |
+| accounts | (شعبه اختیاری) | Many to One | branch_id |
 | documents | fiscal_years | Many to One | fiscal_year_id |
-| documents | branches | Many to One | branch_id |
+| documents | (شعبه اختیاری) | Many to One | branch_id |
 | document_items | documents | Many to One | document_id |
 | document_items | accounts | Many to One | account_id |
 | document_items | cost_centers | Many to One | cost_center_id |
@@ -41,40 +44,16 @@
 
 ---
 
-## ۲. جدول branches (شعب)
+## ۲. فیلد branch_id (شعبه)
 
 ### ۲.۱ شرح
 
-نگهداری اطلاعات شعب سازمان. هر سند و حساب می‌تواند به یک شعبه تعلق داشته باشد.
+پکیج جدول شعبه را تعریف نمی‌کند. در جداول **accounts** و **documents** فقط فیلد **branch_id** (unsigned bigint, nullable) وجود دارد. مقدار این فیلد می‌تواند:
 
-### ۲.۲ فیلدها
+- **null** باشد (سند/حساب بدون تفکیک شعبه)، یا
+- شناسه عددی شعبه باشد (مثلاً از `config('accounting.branch.default_id')` یا جدول/مدل Branch اپلیکیشن).
 
-| فیلد | نوع | Null | پیش‌فرض | شرح |
-|------|-----|------|---------|-----|
-| id | bigint unsigned | ❌ | auto | شناسه یکتا |
-| code | varchar(20) | ❌ | - | کد شعبه |
-| title | varchar(100) | ❌ | - | عنوان شعبه |
-| is_active | boolean | ❌ | true | وضعیت فعال بودن |
-| is_default | boolean | ❌ | false | شعبه پیش‌فرض |
-| meta | json | ✅ | null | اطلاعات اضافی |
-| created_at | timestamp | ✅ | null | زمان ایجاد |
-| updated_at | timestamp | ✅ | null | زمان بروزرسانی |
-
-### ۲.۳ ایندکس‌ها
-
-| نام | فیلد(ها) | نوع | شرح |
-|-----|----------|-----|-----|
-| PRIMARY | id | Primary | کلید اصلی |
-| branches_code_unique | code | Unique | یکتایی کد |
-| branches_is_active_index | is_active | Index | فیلتر شعب فعال |
-
-### ۲.۴ نمونه داده
-
-| id | code | title | is_active | is_default |
-|----|------|-------|-----------|------------|
-| 1 | HQ | دفتر مرکزی | true | true |
-| 2 | BR01 | شعبه تهران | true | false |
-| 3 | BR02 | شعبه اصفهان | true | false |
+در صورت داشتن جدول شعبه در اپ، می‌توانید در مدل‌های پکیج رابطهٔ `branch()` را با `config('accounting.branch.model')` به آن متصل کنید.
 
 ---
 

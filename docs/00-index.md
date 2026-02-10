@@ -11,7 +11,7 @@
 | نام پکیج | `your-vendor/laravel-accounting` |
 | نسخه | 1.0.0 |
 | حداقل نسخه PHP | 8.2 |
-| حداقل نسخه Laravel | 12.x |
+| حداقل نسخه Laravel | ^11.0 \| ^12.0 |
 | لایسنس | MIT |
 | آخرین بروزرسانی | خرداد ۱۴۰۴ |
 
@@ -47,7 +47,7 @@
 |---|------|-------|-----|
 | 08 | [api-reference.md](08-api-reference.md) | مرجع API | متدها و سرویس‌ها |
 | 09 | [reports.md](09-reports.md) | گزارش‌ها | انواع گزارش‌های حسابداری |
-| 10 | [multi-branch.md](10-multi-branch.md) | چند شعبه‌ای | مدیریت شعب |
+| 10 | [multi-branch.md](10-multi-branch.md) | شعبه (branch_id) | استفاده از branch_id و تنظیمات شعبه |
 | 11 | [multi-language.md](11-multi-language.md) | چندزبانگی | ترجمه و زبان‌ها |
 | 12 | [security.md](12-security.md) | امنیت | دسترسی‌ها و Audit |
 | 13 | [examples.md](13-examples.md) | مثال‌ها | سناریوهای کاربردی |
@@ -62,8 +62,6 @@
 | 14d | [implementation/traits.md](14-implementation/14d-traits.md) | Traits | کد Trait ها |
 | 14e | [implementation/enums.md](14-implementation/14e-enums.md) | Enums | کد Enum ها |
 | 14f | [implementation/events-observers.md](14-implementation/14f-events-observers.md) | Events & Observers | کد رویدادها |
-| 14g | [implementation/config-provider.md](14-implementation/14g-config-provider.md) | Config & Provider | تنظیمات و Provider |
-| 14h | [implementation/lang-files.md](14-implementation/14h-lang-files.md) | Language Files | فایل‌های زبان |
 
 ### بخش ششم: ضمائم
 
@@ -85,9 +83,9 @@
 
 **سرویس‌ها:** AccountService، DocumentService، ReportService و سایر سرویس‌ها که منطق تجاری را پیاده‌سازی می‌کنند.
 
-**مدل‌ها:** Account، Document، FiscalYear، Branch و سایر مدل‌ها که داده‌ها را نگهداری می‌کنند.
+**مدل‌ها:** Account، Document، FiscalYear، CostCenter، DocumentLog و در صورت تنظیم مدل شعبه در config، Branch (اختیاری).
 
-**دیتابیس:** جداول accounts، documents، document_items، fiscal_years، branches، cost_centers و document_logs.
+**دیتابیس:** پکیج فقط جداول fiscal_years، accounts، cost_centers، documents، document_items و document_logs را ایجاد می‌کند. برای شعبه فقط فیلد **branch_id** در accounts و documents استفاده می‌شود؛ جدول/مدل Branch در اختیار اپلیکیشن است.
 
 ---
 
@@ -133,7 +131,7 @@
 | مورد | حداقل نسخه |
 |------|------------|
 | PHP | 8.2 |
-| Laravel | 12.x |
+| Laravel | ^11.0 \| ^12.0 |
 | MySQL | 8.0 |
 | PostgreSQL | 13 (جایگزین) |
 

@@ -55,12 +55,13 @@ php artisan vendor:publish --tag=accounting-config
 
 ### مایگریشن‌ها
 
+مایگریشن‌های پکیج به‌صورت خودکار بارگذاری می‌شوند. پس از نصب، اجرا کنید:
+
 ```bash
-php artisan vendor:publish --tag=accounting-migrations
 php artisan migrate
 ```
 
-جداول: `branches`, `fiscal_years`, `accounts`, `cost_centers`, `documents`, `document_items`, `document_logs`.
+جداولی که پکیج ایجاد می‌کند: `acc_fiscal_years`, `acc_accounts`, `acc_cost_centers`, `acc_documents`, `acc_document_items`, `acc_document_logs` (با پیشوند از `config/accounting.general.prefix`). **جدول `branches` توسط پکیج ساخته نمی‌شود**؛ پکیج فقط در جداول `accounts` و `documents` فیلد **`branch_id`** (nullable) دارد. شعبه پیش‌فرض از `config('accounting.branch.default_id')` تأمین می‌شود؛ در صورت نیاز می‌توانید جدول/مدل شعبه را در اپلیکیشن داشته باشید و در config به آن اشاره کنید.
 
 ### ترجمه‌ها (زبان)
 
@@ -105,11 +106,11 @@ php artisan vendor:publish --provider="Karnoweb\Accounting\AccountingServiceProv
 
 ## تنظیمات اولیه
 
-1. بعد از مایگریشن، حداقل یک **شعبه** و یک **سال مالی** با وضعیت فعال داشته باشید (مثلاً با `DefaultAccountsSeeder`).
+1. بعد از مایگریشن، حداقل یک **سال مالی** با وضعیت فعال داشته باشید (مثلاً با `DefaultAccountsSeeder`). برای شعبه: یا یک **`branch_id`** ثابت (مثلاً `accounting.branch.default_id`) کافی است، یا اگر جدول/مدل Branch در اپ دارید، آن را در config تنظیم کنید.
 2. در `config/accounting.php` در صورت نیاز مقادیر زیر را تنظیم کنید:
-   - `accounting.general.prefix` — پیشوند جداول حسابداری (پیش‌فرض: `acc_`؛ جداول: `acc_branches`, `acc_accounts`, …)
+   - `accounting.general.prefix` — پیشوند جداول حسابداری (پیش‌فرض: `acc_`؛ جداول: `acc_fiscal_years`, `acc_accounts`, …)
    - `accounting.user.model` — مدل کاربر (برای `created_by`, `posted_by`)
-   - `accounting.branch.default_id` — شعبه پیش‌فرض
+   - `accounting.branch.default_id` — شعبه پیش‌فرض (شناسه عددی)
    - `accounting.account.custom_seed` — تعریف حساب‌های اضافی که همراه سیدر پیش‌فرض سینک می‌شوند
    - `accounting.account.system_accounts` — کد حساب‌های سیستمی (صندوق، بانک، دریافتنی، پرداختنی و …)
    - `accounting.document.allowed_types` — انواع مجاز سند

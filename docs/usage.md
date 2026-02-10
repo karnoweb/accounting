@@ -75,14 +75,19 @@ $document = Accounting::document()
 
 ### شعبه و سال مالی
 
+پکیج فقط **branch_id** (عدد یا مدل) را ذخیره می‌کند. می‌توانید شناسهٔ عددی شعبه یا در صورت داشتن مدل Branch در اپ، خود مدل را بدهید:
+
 ```php
 Accounting::document()
-    ->branch(1)                    // یا Branch مدل
-    ->fiscalYear($fiscalYear)      // یا شناسه
+    ->branch(1)                    // branch_id به‌صورت عدد
+    ->fiscalYear($fiscalYear)      // یا fiscalYear($id)
     ->type('transfer')
     ->debit($accountA, 100)
     ->credit($accountB, 100)
     ->save();
+
+// در صورت داشتن مدل Branch در اپ:
+// ->branch($branchModel)
 ```
 
 ### مرکز هزینه (Cost Center)
