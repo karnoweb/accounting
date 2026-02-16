@@ -1,3 +1,5 @@
+<div dir="rtl">
+
 # Laravel Accounting
 
 پکیج حسابداری دوطرفه (Double-Entry) برای لاراول با ثبت خودکار اسناد، سال مالی، شعبه، مرکز هزینه و گزارش تراز آزمایشی.
@@ -149,3 +151,4 @@ php artisan vendor:publish --provider="Karnoweb\Accounting\AccountingServiceProv
 ## لایسنس
 
 MIT
+</div>
