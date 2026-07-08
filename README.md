@@ -4,8 +4,8 @@
 
 پکیج حسابداری دوطرفه (Double-Entry) برای لاراول با ثبت خودکار اسناد، سال مالی، شعبه، مرکز هزینه و گزارش تراز آزمایشی.
 
-- **PHP:** ^8.2  
-- **Laravel:** ^11.0 | ^12.0  
+- **PHP:** ^8.3  
+- **Laravel:** ^13.0  
 
 ---
 
@@ -14,7 +14,11 @@
 ### از طریق Composer (پروژه جدا)
 
 ```bash
-composer require karnoweb/laravel-accounting
+# Laravel 13
+composer require karnoweb/laravel-accounting:^13.0
+
+# Laravel 11–12
+composer require karnoweb/laravel-accounting:^1.0
 ```
 
 ### به‌صورت پکیج داخلی (مونورپو)
