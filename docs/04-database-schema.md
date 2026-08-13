@@ -18,14 +18,23 @@
 
 پکیج فقط جداول زیر را ایجاد می‌کند (با پیشوند از `config/accounting.general.prefix`، مثلاً `acc_`):
 
-| # | جدول | شرح | تعداد فیلد |
-|---|------|-----|------------|
-| ۱ | fiscal_years | سال‌های مالی | ۱۱ |
-| ۲ | accounts | حساب‌های مالی | ۱۸ |
-| ۳ | cost_centers | مراکز هزینه | ۸ |
-| ۴ | documents | اسناد حسابداری | ۱۷ |
-| ۵ | document_items | آیتم‌های اسناد | ۱۰ |
-| ۶ | document_logs | لاگ تغییرات اسناد | ۱۰ |
+| # | جدول | شرح |
+|---|------|-----|
+| ۱ | fiscal_years | سال‌های مالی |
+| ۲ | accounts | حساب‌های مالی |
+| ۳ | cost_centers | مراکز هزینه |
+| ۴ | documents | اسناد حسابداری (+ `idempotency_key` یکتا و nullable) |
+| ۵ | document_items | آیتم‌های اسناد |
+| ۶ | document_logs | لاگ تغییرات اسناد |
+| ۷ | document_number_sequences | تخصیص امن شماره سند (قفل ردیف) |
+
+**Unique مهم:**
+
+- `documents (fiscal_year_id, number)` — شماره یکتا در هر سال مالی
+- `documents.idempotency_key` — یکتایی اختیاری برای retry (چند `NULL` مجاز است)
+- `document_number_sequences (fiscal_year_id, branch_id)` — یک ردیف توالی به ازای FY (+ شعبه در صورت `separate_numbering`)
+
+**عمداً unique نیست:** `(source_type, source_id)` — چند سند مشروع از یک منبع مجاز است؛ برای جلوگیری از تکرار از `idempotency_key` استفاده کنید.
 
 **جدول `branches` توسط پکیج ایجاد نمی‌شود.** در جداول `accounts` و `documents` فیلد **`branch_id`** (nullable) وجود دارد؛ در صورت نیاز، جدول/مدل شعبه را در اپلیکیشن تعریف کنید و شعبه پیش‌فرض را با `config('accounting.branch.default_id')` تنظیم کنید.
 

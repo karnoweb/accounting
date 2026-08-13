@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Karnoweb\Accounting\Services;
 
 use Karnoweb\Accounting\Models\FiscalYear;
+use Karnoweb\Accounting\Support\AccountHierarchy;
 
 /**
  * Service for accounting reports (trial balance, etc.).
@@ -17,7 +18,7 @@ class ReportService
     ) {}
 
     /**
-     * Trial balance: list of leaf accounts (level 3) with non-zero balance, debit and credit columns.
+     * Trial balance: list of posting-level accounts with non-zero FY balance, debit and credit columns.
      *
      * @return array<int, array{account: \Karnoweb\Accounting\Models\Account, debit: float, credit: float}>
      */
@@ -31,7 +32,7 @@ class ReportService
 
         $accounts = $this->accountService->search([
             'is_active' => true,
-            'level' => 3,
+            'level' => AccountHierarchy::postingLevel(),
         ]);
 
         $rows = [];

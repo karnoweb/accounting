@@ -25,7 +25,6 @@ class AccountingServiceProvider extends ServiceProvider
 
         $this->app->singleton(AccountService::class);
         $this->app->singleton(BalanceService::class);
-        $this->app->singleton(ReportService::class);
         $this->app->singleton(FiscalYearService::class);
 
         $this->app->singleton(DocumentService::class, function ($app) {
@@ -35,8 +34,12 @@ class AccountingServiceProvider extends ServiceProvider
             );
         });
 
-        $this->app->singleton(DocumentBuilder::class, function ($app) {
-            return new DocumentBuilder($app->make(DocumentService::class));
+        // Transient: each resolve is a fresh builder (no shared line state).
+        $this->app->bind(DocumentBuilder::class, function ($app) {
+            return new DocumentBuilder(
+                $app->make(DocumentService::class),
+                $app->make(AccountService::class)
+            );
         });
 
         $this->app->singleton(ReportService::class, function ($app) {
@@ -48,7 +51,7 @@ class AccountingServiceProvider extends ServiceProvider
 
         $this->app->singleton('accounting', function ($app) {
             return new AccountingManager(
-                $app->make(DocumentBuilder::class),
+                $app->make(DocumentService::class),
                 $app->make(AccountService::class),
                 $app->make(BalanceService::class),
                 $app->make(ReportService::class),

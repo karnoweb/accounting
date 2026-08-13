@@ -15,11 +15,15 @@
 
 ```bash
 # Laravel 13
-composer require karnoweb/laravel-accounting:^13.0
+composer require karnoweb/laravel-accounting:^13.1
 
 # Laravel 11–12
 composer require karnoweb/laravel-accounting:^1.0
 ```
+
+نسخه فعلی: **13.1.0** — `Accounting::version()` از `composer.json` خوانده می‌شود.
+
+از 13.1 اینثوریانت‌های کرنل دفتر (ثبت فقط روی حساب قابل‌ثبت، تغییرناپذیری خطوط posted، مسیر کانونیکال post، تراز FY-aware، شماره‌گذاری امن، ایزوله بودن builder) در خود پکیج تضمین می‌شوند. جزئیات: [docs/usage.md](docs/usage.md).
 
 ### به‌صورت پکیج داخلی (مونورپو)
 
@@ -67,7 +71,7 @@ php artisan vendor:publish --tag=accounting-config
 php artisan migrate
 ```
 
-جداولی که پکیج ایجاد می‌کند: `acc_fiscal_years`, `acc_accounts`, `acc_cost_centers`, `acc_documents`, `acc_document_items`, `acc_document_logs` (با پیشوند از `config/accounting.general.prefix`). **جدول `branches` توسط پکیج ساخته نمی‌شود**؛ پکیج فقط در جداول `accounts` و `documents` فیلد **`branch_id`** (nullable) دارد. شعبه پیش‌فرض از `config('accounting.branch.default_id')` تأمین می‌شود؛ در صورت نیاز می‌توانید جدول/مدل شعبه را در اپلیکیشن داشته باشید و در config به آن اشاره کنید.
+جداولی که پکیج ایجاد می‌کند: `acc_fiscal_years`, `acc_accounts`, `acc_cost_centers`, `acc_documents`, `acc_document_items`, `acc_document_logs`, `acc_document_number_sequences` (با پیشوند از `config/accounting.general.prefix`). ستون اختیاری `documents.idempotency_key` برای یکتایی retry. **جدول `branches` توسط پکیج ساخته نمی‌شود**؛ پکیج فقط در جداول `accounts` و `documents` فیلد **`branch_id`** (nullable) دارد. شعبه پیش‌فرض از `config('accounting.branch.default_id')` تأمین می‌شود؛ در صورت نیاز می‌توانید جدول/مدل شعبه را در اپلیکیشن داشته باشید و در config به آن اشاره کنید.
 
 ### ترجمه‌ها (زبان)
 

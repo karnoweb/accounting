@@ -5,15 +5,18 @@ declare(strict_types=1);
 namespace Karnoweb\Accounting\Services;
 
 use Exception;
+use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Karnoweb\Accounting\Enums\DocumentStatus;
 use Karnoweb\Accounting\Exceptions\ClosedFiscalYearException;
-use Karnoweb\Accounting\Exceptions\InactiveAccountException;
+use Karnoweb\Accounting\Exceptions\DuplicateIdempotencyKeyException;
 use Karnoweb\Accounting\Exceptions\UnbalancedDocumentException;
 use Karnoweb\Accounting\Models\Account;
 use Karnoweb\Accounting\Models\Document;
 use Karnoweb\Accounting\Models\DocumentItem;
+use Karnoweb\Accounting\Models\DocumentNumberSequence;
 use Karnoweb\Accounting\Models\FiscalYear;
 use RuntimeException;
 
@@ -26,41 +29,83 @@ class DocumentService
 
     public function create(array $data): Document
     {
-        return DB::transaction(function () use ($data) {
-            $fiscalYear = $this->resolveFiscalYear($data);
-            $this->validateFiscalYear($fiscalYear, $data['date']);
-            $this->validateItems($data['items'] ?? []);
+        $maxAttempts = max(1, (int) config('accounting.document.number_allocation_retries', 5));
+        $attempt = 0;
+        $manualNumber = array_key_exists('number', $data);
 
-            $number = $data['number'] ?? $this->getNextNumber($fiscalYear, $data['branch_id'] ?? null);
+        while (true) {
+            $attempt++;
 
-            $document = Document::create([
-                'fiscal_year_id' => $fiscalYear->id,
-                'branch_id' => $data['branch_id'] ?? $this->getDefaultBranchId(),
-                'number' => $number,
-                'reference' => $data['reference'] ?? null,
-                'date' => $data['date'],
-                'type' => $data['type'],
-                'status' => $data['status'] ?? DocumentStatus::DRAFT,
-                'description' => $data['description'] ?? null,
-                'notes' => $data['notes'] ?? null,
-                'source_type' => $data['source_type'] ?? null,
-                'source_id' => $data['source_id'] ?? null,
-                'created_by' => auth()->id(),
-                'meta' => $data['meta'] ?? null,
-            ]);
+            try {
+                return DB::transaction(function () use ($data, $manualNumber) {
+                    $fiscalYear = $this->resolveFiscalYear($data);
+                    $this->validateFiscalYear($fiscalYear, $data['date']);
+                    $this->validateItems($data['items'] ?? []);
+                    $this->assertIdempotencyKeyAvailable($data['idempotency_key'] ?? null);
 
-            $this->createItems($document, $data['items']);
+                    $branchId = $data['branch_id'] ?? $this->getDefaultBranchId();
+                    $number = $manualNumber
+                        ? (int) $data['number']
+                        : $this->allocateNextNumber($fiscalYear, $branchId);
 
-            return $document->load('items.account');
-        });
+                    $document = Document::create([
+                        'fiscal_year_id' => $fiscalYear->id,
+                        'branch_id' => $branchId,
+                        'number' => $number,
+                        'reference' => $data['reference'] ?? null,
+                        'date' => $data['date'],
+                        'type' => $data['type'],
+                        'status' => $data['status'] ?? DocumentStatus::DRAFT,
+                        'description' => $data['description'] ?? null,
+                        'notes' => $data['notes'] ?? null,
+                        'source_type' => $data['source_type'] ?? null,
+                        'source_id' => $data['source_id'] ?? null,
+                        'idempotency_key' => $data['idempotency_key'] ?? null,
+                        'created_by' => $this->currentUserId(),
+                        'meta' => $data['meta'] ?? null,
+                    ]);
+
+                    $this->createItems($document, $data['items']);
+
+                    return $document->load('items.account');
+                });
+            } catch (UniqueConstraintViolationException $e) {
+                if ($this->isIdempotencyConflict($e)) {
+                    throw new DuplicateIdempotencyKeyException((string) ($data['idempotency_key'] ?? ''), previous: $e);
+                }
+
+                if ($manualNumber || $attempt >= $maxAttempts || ! $this->isDocumentNumberConflict($e)) {
+                    throw $e;
+                }
+            } catch (QueryException $e) {
+                // SQLite / older drivers may not throw UniqueConstraintViolationException.
+                if ($this->isIdempotencyConflict($e)) {
+                    throw new DuplicateIdempotencyKeyException((string) ($data['idempotency_key'] ?? ''), previous: $e);
+                }
+
+                if ($manualNumber || $attempt >= $maxAttempts || ! $this->isDocumentNumberConflict($e)) {
+                    throw $e;
+                }
+            }
+        }
     }
 
+    /**
+     * Canonical posting path for the package. Document::post() delegates here.
+     */
     public function post(Document|int $document): Document
     {
-        $document = $document instanceof Document ? $document : Document::with('items')->findOrFail($document);
+        $document = $document instanceof Document
+            ? $document->loadMissing(['items.account', 'fiscalYear'])
+            : Document::with(['items.account', 'fiscalYear'])->findOrFail($document);
 
         if ( ! $document->status->canPost()) {
             throw new Exception(__('accounting::accounting.messages.document_cannot_post'));
+        }
+
+        $minItems = (int) config('accounting.document.min_items', 2);
+        if ($document->items->count() < $minItems) {
+            throw new InvalidArgumentException(__('accounting::accounting.validation.items_required', ['min' => $minItems]));
         }
 
         if ( ! $this->isBalanced($document)) {
@@ -72,17 +117,22 @@ class DocumentService
 
         $this->validateFiscalYear($document->fiscalYear, $document->date->format('Y-m-d'));
 
-        return DB::transaction(function () use ($document) {
-            $document->update([
-                'status' => DocumentStatus::POSTED,
-                'posted_at' => now(),
-                'posted_by' => auth()->id(),
-            ]);
+        foreach ($document->items as $item) {
+            $account = $item->account ?? Account::find($item->account_id);
+            if ( ! $account) {
+                throw new InvalidArgumentException(__('accounting::accounting.validation.account_invalid'));
+            }
+            $this->accountService->assertPostable($account);
+        }
 
-            return $document;
+        return DB::transaction(function () use ($document) {
+            return $document->markAsPosted($this->currentUserId());
         });
     }
 
+    /**
+     * Allocate the next document number under a row lock (concurrency-safe).
+     */
     public function getNextNumber(?FiscalYear $fiscalYear = null, ?int $branchId = null): int
     {
         $fiscalYear ??= FiscalYear::current();
@@ -91,15 +141,9 @@ class DocumentService
             throw new RuntimeException(__('accounting::accounting.messages.no_active_fiscal_year'));
         }
 
-        $query = Document::where('fiscal_year_id', $fiscalYear->id);
-
-        if (config('accounting.branch.separate_numbering', false) && $branchId) {
-            $query->where('branch_id', $branchId);
-        }
-
-        $lastNumber = $query->max('number') ?? 0;
-
-        return $lastNumber + 1;
+        return DB::transaction(function () use ($fiscalYear, $branchId) {
+            return $this->allocateNextNumber($fiscalYear, $branchId);
+        });
     }
 
     public function isBalanced(Document $document): bool
@@ -107,6 +151,61 @@ class DocumentService
         $balance = $document->items->sum(fn ($item) => $item->amount * $item->sign);
 
         return abs($balance) < 0.01;
+    }
+
+    /**
+     * Persist posted status without re-entering Document::post() (avoids recursion).
+     *
+     * @internal Prefer DocumentService::post() / Document::post().
+     */
+    // markAsPosted lives on Document
+
+    private function allocateNextNumber(FiscalYear $fiscalYear, ?int $branchId): int
+    {
+        $sequenceBranchId = $this->sequenceBranchId($branchId);
+
+        $sequence = DocumentNumberSequence::query()
+            ->where('fiscal_year_id', $fiscalYear->id)
+            ->where('branch_id', $sequenceBranchId)
+            ->lockForUpdate()
+            ->first();
+
+        if ( ! $sequence) {
+            // Seed from existing max so upgrades keep sequential behavior.
+            $seedQuery = Document::withTrashed()->where('fiscal_year_id', $fiscalYear->id);
+            if (config('accounting.branch.separate_numbering', false) && $branchId) {
+                $seedQuery->where('branch_id', $branchId);
+            }
+            $seed = (int) ($seedQuery->max('number') ?? 0);
+
+            try {
+                $sequence = DocumentNumberSequence::create([
+                    'fiscal_year_id' => $fiscalYear->id,
+                    'branch_id' => $sequenceBranchId,
+                    'last_number' => $seed,
+                ]);
+            } catch (UniqueConstraintViolationException|QueryException) {
+                $sequence = DocumentNumberSequence::query()
+                    ->where('fiscal_year_id', $fiscalYear->id)
+                    ->where('branch_id', $sequenceBranchId)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+            }
+        }
+
+        $sequence->last_number = (int) $sequence->last_number + 1;
+        $sequence->save();
+
+        return (int) $sequence->last_number;
+    }
+
+    private function sequenceBranchId(?int $branchId): int
+    {
+        if (config('accounting.branch.separate_numbering', false) && $branchId) {
+            return $branchId;
+        }
+
+        return 0;
     }
 
     private function validateItems(array $items): void
@@ -124,9 +223,7 @@ class DocumentService
                 throw new InvalidArgumentException(__('accounting::accounting.validation.account_invalid'));
             }
 
-            if ( ! $account->is_active && config('accounting.validation.check_account_active', true)) {
-                throw new InactiveAccountException($account);
-            }
+            $this->accountService->assertPostable($account);
         }
 
         $balance = 0;
@@ -206,5 +303,44 @@ class DocumentService
         }
 
         return config('accounting.branch.default_id');
+    }
+
+    private function currentUserId(): ?int
+    {
+        // ponytail: optional auth; package stays HTTP-agnostic when no guard is bound
+        try {
+            return auth()->id();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function assertIdempotencyKeyAvailable(?string $key): void
+    {
+        if ($key === null || $key === '') {
+            return;
+        }
+
+        if (Document::withTrashed()->where('idempotency_key', $key)->exists()) {
+            throw new DuplicateIdempotencyKeyException($key);
+        }
+    }
+
+    private function isDocumentNumberConflict(QueryException $e): bool
+    {
+        $message = $e->getMessage();
+
+        return str_contains($message, 'documents_fiscal_year_id_number_unique')
+            || str_contains($message, 'acc_documents_fiscal_year_id_number_unique')
+            || (bool) preg_match('/unique constraint failed:\s*[`"\']?[\w.]*fiscal_year_id[`"\']?\s*,\s*[`"\']?[\w.]*number/i', $message);
+    }
+
+    private function isIdempotencyConflict(QueryException $e): bool
+    {
+        $message = $e->getMessage();
+
+        // Do not match bare "idempotency_key" — SQL insert payloads always include the column name.
+        return str_contains($message, 'acc_documents_idempotency_key_unique')
+            || (bool) preg_match('/unique constraint failed:\s*[`"\']?[\w.]*idempotency_key/i', $message);
     }
 }

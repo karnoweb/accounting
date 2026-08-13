@@ -14,15 +14,15 @@ use Karnoweb\Accounting\Models\FiscalYear;
 /**
  * Fluent builder for creating and posting accounting documents.
  *
- * Chain type, date, branch, fiscal year, source, then debit/credit lines; end with save() or post().
+ * Each Accounting::document() call receives an isolated builder instance.
+ * save()/post() reset local state so accidental reuse cannot leak lines.
  *
  * @example
  * Accounting::document()
  *     ->type('receipt')
  *     ->date(now())
- *     ->branch($branchId)
- *     ->debit(Accounting::systemAccount('cash'), 1000)
- *     ->credit(Accounting::systemAccount('receivables'), 1000)
+ *     ->debit($cash, 1000)
+ *     ->credit($receivable, 1000)
  *     ->save();
  */
 class DocumentBuilder
@@ -45,6 +45,8 @@ class DocumentBuilder
 
     private ?int $sourceId = null;
 
+    private ?string $idempotencyKey = null;
+
     private ?array $meta = null;
 
     /** @var array<int, array{account_id: int, amount: float, sign: int, description: ?string, cost_center_id: ?int}> */
@@ -53,7 +55,8 @@ class DocumentBuilder
     private ?int $lastItemCostCenterId = null;
 
     public function __construct(
-        private DocumentService $documentService
+        private DocumentService $documentService,
+        private AccountService $accountService
     ) {
         $this->date = now()->toDateString();
     }
@@ -124,6 +127,16 @@ class DocumentBuilder
     }
 
     /**
+     * Optional DB-unique key for safe retries. Null/empty skips uniqueness.
+     */
+    public function idempotencyKey(string $key): self
+    {
+        $this->idempotencyKey = $key;
+
+        return $this;
+    }
+
+    /**
      * Set arbitrary meta array for the document.
      *
      * @param array<string, mixed> $meta
@@ -167,18 +180,23 @@ class DocumentBuilder
     /** Create the document in draft status. Returns the created Document with items and account relations loaded. */
     public function save(): Document
     {
-        return $this->documentService->create($this->toArray());
+        $document = $this->documentService->create($this->toArray());
+        $this->reset();
+
+        return $document;
     }
 
     /** Create the document and post it in one step. Returns the posted Document. */
     public function post(): Document
     {
         $document = $this->documentService->create($this->toArray());
+        $posted = $this->documentService->post($document);
+        $this->reset();
 
-        return $this->documentService->post($document);
+        return $posted;
     }
 
-    /** @return array{type: string, date: string, description: ?string, notes: ?string, reference: ?string, branch_id: ?int, fiscal_year_id: ?int, source_type: ?string, source_id: ?int, meta: ?array, items: array} */
+    /** @return array{type: string, date: string, description: ?string, notes: ?string, reference: ?string, branch_id: ?int, fiscal_year_id: ?int, source_type: ?string, source_id: ?int, idempotency_key: ?string, meta: ?array, items: array} */
     public function toArray(): array
     {
         return [
@@ -191,6 +209,7 @@ class DocumentBuilder
             'fiscal_year_id' => $this->fiscalYearId,
             'source_type' => $this->sourceType,
             'source_id' => $this->sourceId,
+            'idempotency_key' => $this->idempotencyKey,
             'meta' => $this->meta,
             'items' => array_values($this->items),
         ];
@@ -198,16 +217,33 @@ class DocumentBuilder
 
     private function addItem(Account|int $account, float $amount, int $sign, ?string $description): void
     {
-        $accountId = $account instanceof Account ? $account->id : (int) $account;
+        $resolved = $this->accountService->assertPostable($account);
 
         $this->items[] = [
-            'account_id' => $accountId,
+            'account_id' => $resolved->id,
             'amount' => round($amount, 2),
             'sign' => $sign,
             'description' => $description,
             'cost_center_id' => $this->lastItemCostCenterId,
         ];
 
+        $this->lastItemCostCenterId = null;
+    }
+
+    private function reset(): void
+    {
+        $this->type = 'adjustment';
+        $this->date = now()->toDateString();
+        $this->description = null;
+        $this->notes = null;
+        $this->reference = null;
+        $this->branchId = null;
+        $this->fiscalYearId = null;
+        $this->sourceType = null;
+        $this->sourceId = null;
+        $this->idempotencyKey = null;
+        $this->meta = null;
+        $this->items = [];
         $this->lastItemCostCenterId = null;
     }
 }

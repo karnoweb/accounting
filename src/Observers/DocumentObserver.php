@@ -107,14 +107,41 @@ class DocumentObserver
     {
         DocumentLog::create([
             'document_id' => $document->id,
-            'user_id' => auth()->id(),
+            'user_id' => $this->currentUserId(),
             'action' => $action->value,
             'description' => $this->getDescription($action, $document),
             'old_values' => $oldValues,
             'new_values' => $newValues,
-            'ip_address' => request()->ip(),
-            'user_agent' => request()->userAgent(),
+            'ip_address' => $this->requestIp(),
+            'user_agent' => $this->requestUserAgent(),
         ]);
+    }
+
+    protected function currentUserId(): ?int
+    {
+        try {
+            return auth()->id();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    protected function requestIp(): ?string
+    {
+        try {
+            return request()->ip();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    protected function requestUserAgent(): ?string
+    {
+        try {
+            return request()->userAgent();
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     protected function getDescription(AuditAction $action, Document $document): string

@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Karnoweb\Accounting\Enums\DocumentStatus;
 use Karnoweb\Accounting\Events\DocumentCreated;
 use Karnoweb\Accounting\Exceptions\DocumentNotEditableException;
-use Karnoweb\Accounting\Exceptions\UnbalancedDocumentException;
+use Karnoweb\Accounting\Services\DocumentService;
 
 class Document extends BaseModel
 {
@@ -35,6 +35,7 @@ class Document extends BaseModel
         'notes',
         'source_type',
         'source_id',
+        'idempotency_key',
         'posted_at',
         'created_by',
         'approved_by',
@@ -65,18 +66,37 @@ class Document extends BaseModel
         static::updating(function (Document $document) {
             $document->_oldValues = $document->getOriginal();
 
-            if ($document->getOriginal('status') === 'posted') {
+            $originalStatus = self::normalizeStatus($document->getOriginal('status'));
+
+            if ($originalStatus === DocumentStatus::POSTED) {
                 if ($document->status !== DocumentStatus::VOIDED) {
                     throw new DocumentNotEditableException($document);
                 }
             }
-        });
 
-        static::deleting(function (Document $document) {
-            if ($document->status === DocumentStatus::POSTED) {
+            if ($originalStatus === DocumentStatus::VOIDED) {
                 throw new DocumentNotEditableException($document);
             }
         });
+
+        static::deleting(function (Document $document) {
+            if (in_array($document->status, [DocumentStatus::POSTED, DocumentStatus::VOIDED], true)) {
+                throw new DocumentNotEditableException($document);
+            }
+        });
+    }
+
+    private static function normalizeStatus(mixed $status): ?DocumentStatus
+    {
+        if ($status instanceof DocumentStatus) {
+            return $status;
+        }
+
+        if ($status === null || $status === '') {
+            return null;
+        }
+
+        return DocumentStatus::tryFrom((string) $status);
     }
 
     public function fiscalYear(): BelongsTo
@@ -156,22 +176,27 @@ class Document extends BaseModel
         return $this->status === DocumentStatus::POSTED;
     }
 
+    /**
+     * Canonical posting entrypoint — delegates to DocumentService (same rules as service post).
+     */
     public function post(): self
     {
-        if ( ! $this->isBalanced()) {
-            throw new UnbalancedDocumentException(
-                $this->debit_total,
-                $this->credit_total
-            );
-        }
+        return app(DocumentService::class)->post($this);
+    }
 
+    /**
+     * Apply posted status after DocumentService has validated all invariants.
+     * Do not call this bypassing DocumentService::post() / Document::post().
+     */
+    public function markAsPosted(?int $postedBy = null): self
+    {
         $this->update([
             'status' => DocumentStatus::POSTED,
             'posted_at' => now(),
-            'posted_by' => auth()->id(),
+            'posted_by' => $postedBy,
         ]);
 
-        return $this;
+        return $this->refresh()->load('items.account');
     }
 
     public function void(string $reason = ''): self

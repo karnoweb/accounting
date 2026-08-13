@@ -9,7 +9,9 @@ use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Karnoweb\Accounting\Enums\AccountType;
 use Karnoweb\Accounting\Exceptions\AccountNotFoundException;
+use Karnoweb\Accounting\Exceptions\InvalidAccountHierarchyException;
 use Karnoweb\Accounting\Models\Account;
+use Karnoweb\Accounting\Support\AccountHierarchy;
 
 /**
  * Service for chart-of-accounts: create, find, search, and resolve system accounts.
@@ -32,6 +34,23 @@ class AccountService
             }
 
             $level = $parent ? $parent->level + 1 : 0;
+            $maxLevel = AccountHierarchy::maxLevel();
+            $postingLevel = AccountHierarchy::postingLevel();
+
+            if ($level > $maxLevel) {
+                throw new InvalidAccountHierarchyException(
+                    __('accounting::accounting.messages.account_level_exceeded', [
+                        'level' => $level,
+                        'max' => $maxLevel,
+                    ])
+                );
+            }
+
+            if ($parent && $parent->level >= $postingLevel) {
+                throw new InvalidAccountHierarchyException(
+                    __('accounting::accounting.messages.cannot_nest_under_posting_account')
+                );
+            }
 
             if (empty($data['code']) && config('accounting.account.auto_code', true)) {
                 $data['code'] = $this->generateCode($parent);
@@ -44,7 +63,19 @@ class AccountService
                 $data['nature'] = $type->defaultNature()->value;
             }
 
-            return Account::create([
+            $allowDirectPosting = array_key_exists('allow_direct_posting', $data)
+                ? (bool) $data['allow_direct_posting']
+                : ($level === $postingLevel);
+
+            if ($allowDirectPosting && $level !== $postingLevel) {
+                throw new InvalidAccountHierarchyException(
+                    __('accounting::accounting.messages.posting_only_at_posting_level', [
+                        'level' => $postingLevel,
+                    ])
+                );
+            }
+
+            $account = Account::create([
                 'parent_id' => $parent?->id,
                 'branch_id' => $data['branch_id'] ?? null,
                 'code' => $data['code'],
@@ -55,12 +86,31 @@ class AccountService
                 'nature' => $data['nature'],
                 'is_active' => $data['is_active'] ?? true,
                 'is_system' => $data['is_system'] ?? false,
-                'allow_direct_posting' => $data['allow_direct_posting'] ?? ($level === 3),
+                'allow_direct_posting' => $allowDirectPosting,
                 'entity_type' => $data['entity_type'] ?? null,
                 'entity_id' => $data['entity_id'] ?? null,
                 'meta' => $data['meta'] ?? null,
             ]);
+
+            // Parent accounts must not remain postable once they gain children.
+            if ($parent && $parent->allow_direct_posting) {
+                $parent->update(['allow_direct_posting' => false]);
+            }
+
+            return $account;
         });
+    }
+
+    /**
+     * @throws \Karnoweb\Accounting\Exceptions\InactiveAccountException
+     * @throws \Karnoweb\Accounting\Exceptions\InvalidPostingAccountException
+     */
+    public function assertPostable(Account|int $account): Account
+    {
+        $account = $account instanceof Account ? $account : Account::findOrFail($account);
+        $account->assertPostable();
+
+        return $account;
     }
 
     /** Find account by id, or null if not found. */

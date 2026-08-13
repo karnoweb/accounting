@@ -17,11 +17,6 @@ return [
         'foreign_key' => 'user_id',
     ],
 
-    'fiscal_year' => [
-        'auto_detect' => true,
-        'default_id' => null,
-    ],
-
     'branch' => [
         // جدول/مدل شعبه توسط پکیج ایجاد نمی‌شود؛ فقط branch_id در accounts و documents ذخیره می‌شود.
         // در صورت داشتن جدول Branch در اپ، model و table را تنظیم کنید تا رابطه branch() کار کند.
@@ -35,7 +30,11 @@ return [
     ],
 
     'account' => [
+        // Levels are derived from code_length unless overridden:
+        // max_level = count(code_length) - 1, posting_level defaults to max_level.
         'code_length' => [1, 2, 4, 6],
+        'max_level' => null,
+        'posting_level' => null,
         'auto_code' => true,
         'custom_seed' => [],
         'system_accounts' => [
@@ -53,6 +52,15 @@ return [
         'min_items' => 2,
         'allowed_types' => ['sale', 'purchase', 'receipt', 'payment', 'transfer', 'opening', 'closing', 'adjustment'],
         'workflow_enabled' => false,
+        // Bounded retries when auto-number collides with unique(fiscal_year_id, number).
+        'number_allocation_retries' => 5,
+    ],
+
+    'fiscal_year' => [
+        'auto_detect' => true,
+        'default_id' => null,
+        // Package model forbids overlapping date ranges.
+        'allow_overlap' => false,
     ],
 
     'balance' => [

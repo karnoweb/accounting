@@ -104,8 +104,9 @@ Accounting::document()
 
 - **save()**: سند با وضعیت `draft` ذخیره می‌شود؛ بعداً می‌توان آن را ویرایش یا **post** کرد.
 - **post()**: سند ایجاد و بلافاصله ثبت قطعی می‌شود؛ تراز حساب‌ها به‌روز می‌شود.
+- هر فراخوانی `Accounting::document()` یک **builder جدا** می‌سازد؛ خطوط builder دیگر نشت نمی‌کنند.
 
-ثبت قطعی سند پیش‌نویس:
+ثبت قطعی سند پیش‌نویس — مسیر کانونیکال یکسان است (`Document::post()` و `DocumentService::post()`):
 
 ```php
 $document = Document::find($id);
@@ -113,6 +114,26 @@ $document->post();
 // یا
 app(DocumentService::class)->post($document);
 ```
+
+#### قوانین کرنل هنگام ثبت (post)
+
+1. وضعیت قابل ثبت باشد (`draft` یا `approved`)
+2. حداقل تعداد خطوط (`document.min_items`)
+3. سند متعادل باشد
+4. سال مالی فعال باشد و تاریخ داخل بازه باشد (سال بسته رد می‌شود)
+5. **هر خط فقط روی حساب قابل‌ثبت** (فعال + `allow_direct_posting` + سطح `posting_level` + بدون فرزند)
+6. عملیات اتمیک است؛ به‌روزرسانی تراز از طریق observer انجام می‌شود
+
+#### تغییرناپذیری خطوط پس از ثبت
+
+پس از `posted` (و `voided`)، تغییر/حذف `DocumentItem` و ویرایش هدر سند (جز ابطال) با `DocumentNotEditableException` رد می‌شود.
+
+#### شماره‌گذاری و یکتایی
+
+- شماره سند با جدول `document_number_sequences` و قفل ردیف تخصیص می‌یابد (امن در concurrency).
+- یکتایی DB: `(fiscal_year_id, number)`.
+- برای retry امن اپلیکیشن: `->idempotencyKey('...')` یا فیلد `idempotency_key` (unique؛ چند `NULL` مجاز است).
+- `(source_type, source_id)` عمداً unique نیست تا چند سند مشروع از یک منبع ممکن باشد.
 
 ابطال سند ثبت‌شده:
 
@@ -185,10 +206,13 @@ Accounting::account()->search([
 ### تراز حساب
 
 ```php
+// بدون سال مالی: مانده lifetime (ستون cached_balance در صورت معتبر بودن TTL)
 $balance = Accounting::balance()->getBalance($account);
+
+// با سال مالی: همیشه همان FY — کش FY دیگر هرگز برنمی‌گردد
 $balance = Accounting::balance()->getBalance($account, $fiscalYear);
 
-// تراز تا تاریخ مشخص
+// تراز تا تاریخ مشخص (هرگز از cached_balance lifetime استفاده نمی‌کند)
 $balance = Accounting::balance()->getBalanceAsOf($account, '2024-06-15');
 
 // جمع بدهکار / بستانکار
@@ -199,8 +223,9 @@ $credit = Accounting::balance()->getCreditTotal($account);
 $turnover = Accounting::balance()->getTurnover($account, '2024-01-01', '2024-12-31');
 // ['debit' => float, 'credit' => float, 'balance' => float]
 
-// به‌روزرسانی کش تراز
+// به‌روزرسانی کش تراز (بدون FY = lifetime؛ با FY = کش scoped)
 Accounting::balance()->refreshCache($account);
+Accounting::balance()->refreshCache($account, $fiscalYear);
 ```
 
 ### گزارش تراز آزمایشی (Trial Balance)
@@ -315,8 +340,12 @@ Event::listen(DocumentPosted::class, function (DocumentPosted $event) {
 | `UnbalancedDocumentException` | جمع بدهکار ≠ بستانکار |
 | `ClosedFiscalYearException` | سند در سال مالی بسته |
 | `InactiveAccountException` | حساب غیرفعال |
+| `InvalidPostingAccountException` | حساب گروه/کل/معین یا غیرقابل‌ثبت |
+| `InvalidAccountHierarchyException` | نقض حداکثر سطح / سلسله‌مراتب |
+| `DuplicateIdempotencyKeyException` | تکرار `idempotency_key` |
+| `FiscalYearOverlapException` | هم‌پوشانی بازه سال مالی |
 | `AccountNotFoundException` | حساب با کد داده‌شده یافت نشد |
-| `DocumentNotEditableException` | ویرایش/حذف سند ثبت‌شده |
+| `DocumentNotEditableException` | ویرایش/حذف سند یا خط ثبت‌شده |
 | `SystemAccountException` | عملیات ممنوع روی حساب سیستمی |
 
 با `abort()` یا `try/catch` و پیام مناسب به کاربر پاسخ دهید.

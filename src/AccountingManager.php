@@ -11,6 +11,7 @@ use Karnoweb\Accounting\Models\FiscalYear;
 use Karnoweb\Accounting\Services\AccountService;
 use Karnoweb\Accounting\Services\BalanceService;
 use Karnoweb\Accounting\Services\DocumentBuilder;
+use Karnoweb\Accounting\Services\DocumentService;
 use Karnoweb\Accounting\Services\FiscalYearService;
 use Karnoweb\Accounting\Services\ReportService;
 
@@ -22,17 +23,19 @@ use Karnoweb\Accounting\Services\ReportService;
 class AccountingManager
 {
     public function __construct(
-        protected DocumentBuilder $documentBuilder,
+        protected DocumentService $documentService,
         protected AccountService $accountService,
         protected BalanceService $balanceService,
         protected ReportService $reportService,
         protected FiscalYearService $fiscalYearService
     ) {}
 
-    /** Get the document builder for creating and posting documents (fluent API). */
+    /**
+     * Fresh document builder each call — state is never shared across constructions.
+     */
     public function document(): DocumentBuilder
     {
-        return $this->documentBuilder;
+        return new DocumentBuilder($this->documentService, $this->accountService);
     }
 
     /** Get the account service for CRUD and lookup of chart-of-accounts. */
@@ -96,9 +99,13 @@ class AccountingManager
         return $this->accountService->getSystemAccount($key);
     }
 
-    /** Package version string. */
+    /** Package version string (from composer.json). */
     public function version(): string
     {
-        return '1.0.0';
+        $composer = json_decode((string) file_get_contents(dirname(__DIR__) . '/composer.json'), true);
+
+        return is_array($composer) && isset($composer['version'])
+            ? (string) $composer['version']
+            : '13.0.0';
     }
 }

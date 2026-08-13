@@ -12,7 +12,10 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Karnoweb\Accounting\Enums\AccountNature;
 use Karnoweb\Accounting\Enums\AccountType;
+use Karnoweb\Accounting\Exceptions\InactiveAccountException;
+use Karnoweb\Accounting\Exceptions\InvalidPostingAccountException;
 use Karnoweb\Accounting\Exceptions\SystemAccountException;
+use Karnoweb\Accounting\Support\AccountHierarchy;
 
 class Account extends BaseModel
 {
@@ -156,6 +159,45 @@ class Account extends BaseModel
             });
 
         return (float) ($query->selectRaw('COALESCE(SUM(amount * sign), 0) as balance')->value('balance') ?? 0);
+    }
+
+    /**
+     * Whether this account may receive journal lines under package posting rules.
+     */
+    public function isPostable(): bool
+    {
+        if ( ! $this->is_active) {
+            return false;
+        }
+
+        if ( ! $this->allow_direct_posting) {
+            return false;
+        }
+
+        if ($this->level !== AccountHierarchy::postingLevel()) {
+            return false;
+        }
+
+        if ($this->relationLoaded('children')) {
+            return $this->children->isEmpty();
+        }
+
+        return ! $this->children()->exists();
+    }
+
+    /**
+     * @throws InactiveAccountException
+     * @throws InvalidPostingAccountException
+     */
+    public function assertPostable(): void
+    {
+        if ( ! $this->is_active && config('accounting.validation.check_account_active', true)) {
+            throw new InactiveAccountException($this);
+        }
+
+        if ( ! $this->isPostable()) {
+            throw new InvalidPostingAccountException($this);
+        }
     }
 
     public function canDelete(): bool

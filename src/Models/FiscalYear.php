@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Karnoweb\Accounting\Enums\FiscalYearStatus;
+use Karnoweb\Accounting\Services\FiscalYearService;
 
 class FiscalYear extends BaseModel
 {
@@ -44,6 +45,26 @@ class FiscalYear extends BaseModel
             'opened_at' => 'datetime',
             'closed_at' => 'datetime',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (FiscalYear $fiscalYear) {
+            app(FiscalYearService::class)->assertNoOverlap(
+                Carbon::parse($fiscalYear->start_date)->toDateString(),
+                Carbon::parse($fiscalYear->end_date)->toDateString()
+            );
+        });
+
+        static::updating(function (FiscalYear $fiscalYear) {
+            if ($fiscalYear->isDirty(['start_date', 'end_date'])) {
+                app(FiscalYearService::class)->assertNoOverlap(
+                    Carbon::parse($fiscalYear->start_date)->toDateString(),
+                    Carbon::parse($fiscalYear->end_date)->toDateString(),
+                    $fiscalYear->id
+                );
+            }
+        });
     }
 
     public function documents(): HasMany
@@ -102,6 +123,8 @@ class FiscalYear extends BaseModel
 
     public static function findByDate($date): ?self
     {
-        return static::containingDate($date)->first();
+        return static::containingDate($date)
+            ->orderByRaw("CASE status WHEN 'active' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END")
+            ->first();
     }
 }

@@ -9,6 +9,7 @@ use Karnoweb\Accounting\Enums\AccountType;
 use Karnoweb\Accounting\Enums\FiscalYearStatus;
 use Karnoweb\Accounting\Models\Account;
 use Karnoweb\Accounting\Models\FiscalYear;
+use Karnoweb\Accounting\Support\AccountHierarchy;
 
 class DefaultAccountsSeeder extends Seeder
 {
@@ -91,7 +92,7 @@ class DefaultAccountsSeeder extends Seeder
                 'nature' => $nature->value,
                 'is_active' => true,
                 'is_system' => $row['is_system'] ?? false,
-                'allow_direct_posting' => $row['level'] === 3,
+                'allow_direct_posting' => $row['level'] === AccountHierarchy::postingLevel(),
             ];
 
             $account = Account::updateOrCreate(
