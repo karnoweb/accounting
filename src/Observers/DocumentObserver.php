@@ -11,6 +11,7 @@ use Karnoweb\Accounting\Events\DocumentVoided;
 use Karnoweb\Accounting\Models\Document;
 use Karnoweb\Accounting\Models\DocumentLog;
 use Karnoweb\Accounting\Services\BalanceService;
+use Karnoweb\Accounting\Services\FiscalYearService;
 
 class DocumentObserver
 {
@@ -18,7 +19,8 @@ class DocumentObserver
     private static array $oldStatusByDocumentId = [];
 
     public function __construct(
-        private BalanceService $balanceService
+        private BalanceService $balanceService,
+        private FiscalYearService $fiscalYearService
     ) {}
 
     public function created(Document $document): void
@@ -86,8 +88,40 @@ class DocumentObserver
     protected function handleVoided(Document $document): void
     {
         $this->balanceService->reverseDocument($document);
+        $this->revertOpeningIfLastPosted($document);
         $reason = $this->extractVoidReason($document);
         event(new DocumentVoided($document, $reason));
+    }
+
+    private function revertOpeningIfLastPosted(Document $document): void
+    {
+        if ($document->type !== 'opening') {
+            return;
+        }
+
+        // Reload: the in-memory relation can still say active after the year was closed.
+        $fiscalYear = $document->fiscalYear()->lockForUpdate()->first();
+        if ( ! $fiscalYear || ! $fiscalYear->isActive()) {
+            return;
+        }
+
+        Document::query()
+            ->where('fiscal_year_id', $fiscalYear->id)
+            ->where('status', DocumentStatus::POSTED->value)
+            ->where('type', 'opening')
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+
+        $stillPosted = Document::query()
+            ->where('fiscal_year_id', $fiscalYear->id)
+            ->where('status', DocumentStatus::POSTED->value)
+            ->where('type', 'opening')
+            ->exists();
+
+        if ( ! $stillPosted) {
+            $this->fiscalYearService->revertOpening($fiscalYear);
+        }
     }
 
     protected function extractVoidReason(Document $document): string

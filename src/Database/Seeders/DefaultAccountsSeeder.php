@@ -6,9 +6,9 @@ namespace Karnoweb\Accounting\Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use Karnoweb\Accounting\Enums\AccountType;
-use Karnoweb\Accounting\Enums\FiscalYearStatus;
 use Karnoweb\Accounting\Models\Account;
 use Karnoweb\Accounting\Models\FiscalYear;
+use Karnoweb\Accounting\Services\FiscalYearService;
 use Karnoweb\Accounting\Support\AccountHierarchy;
 
 class DefaultAccountsSeeder extends Seeder
@@ -50,17 +50,35 @@ class DefaultAccountsSeeder extends Seeder
 
     private function ensureFiscalYear(): void
     {
+        $service = app(FiscalYearService::class);
+
+        if ($service->current()) {
+            return;
+        }
+
         $start = now()->startOfYear()->format('Y-m-d');
         $end = now()->endOfYear()->format('Y-m-d');
-        $fiscalYear = FiscalYear::updateOrCreate(
-            ['start_date' => $start, 'end_date' => $end],
-            [
-                'title' => 'سال مالی ' . now()->year,
-                'status' => FiscalYearStatus::ACTIVE,
-                'is_current' => true,
-            ]
-        );
-        FiscalYear::where('id', '!=', $fiscalYear->id)->update(['is_current' => false]);
+
+        $existing = FiscalYear::query()
+            ->whereDate('start_date', $start)
+            ->whereDate('end_date', $end)
+            ->first();
+
+        if ($existing) {
+            if ( ! $existing->isClosed()) {
+                $service->activate($existing);
+            }
+
+            return;
+        }
+
+        $fiscalYear = $service->create([
+            'title' => 'سال مالی ' . now()->year,
+            'start_date' => $start,
+            'end_date' => $end,
+        ]);
+
+        $service->activate($fiscalYear);
     }
 
     private function syncAccounts(?int $branchId): void
@@ -119,6 +137,8 @@ class DefaultAccountsSeeder extends Seeder
             ['code' => '11', 'title' => 'دارایی جاری', 'level' => 1, 'type' => AccountType::ASSET, 'parent_code' => '1'],
             ['code' => '21', 'title' => 'بدهی جاری', 'level' => 1, 'type' => AccountType::LIABILITY, 'parent_code' => '2'],
             ['code' => '31', 'title' => 'سرمایه', 'level' => 1, 'type' => AccountType::EQUITY, 'parent_code' => '3'],
+            ['code' => '3101', 'title' => 'سود انباشته', 'level' => 2, 'type' => AccountType::EQUITY, 'parent_code' => '31'],
+            ['code' => '310101', 'title' => 'سود انباشته', 'level' => 3, 'type' => AccountType::EQUITY, 'parent_code' => '3101', 'is_system' => true],
             ['code' => '41', 'title' => 'درآمد عملیاتی', 'level' => 1, 'type' => AccountType::INCOME, 'parent_code' => '4'],
             ['code' => '51', 'title' => 'هزینه عملیاتی', 'level' => 1, 'type' => AccountType::EXPENSE, 'parent_code' => '5'],
             ['code' => '1101', 'title' => 'موجودی نقد', 'level' => 2, 'type' => AccountType::ASSET, 'parent_code' => '11'],

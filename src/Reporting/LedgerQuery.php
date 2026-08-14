@@ -229,8 +229,11 @@ final class LedgerQuery
     }
 
     /**
-     * Balance accumulated strictly before `from`, across ALL fiscal years — a
-     * previous, even closed, fiscal year must still contribute to opening.
+     * Balance accumulated strictly before `from`.
+     *
+     * FY-scoped queries (`fiscalYearId` set) isolate opening to that same fiscal
+     * year so prior years cannot leak into FY reports. Date-only queries keep
+     * lifetime opening: posted + date < from, with no fiscal_year_id filter.
      */
     private function openingQuery(): QueryBuilder
     {
@@ -244,6 +247,10 @@ final class LedgerQuery
 
         $this->applyAccountFilter($query, $items);
         $this->applyBranchFilter($query, $documents);
+
+        if ($this->fiscalYearId !== null) {
+            $query->where("{$documents}.fiscal_year_id", $this->fiscalYearId);
+        }
 
         return $query;
     }

@@ -10,7 +10,6 @@ use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Karnoweb\Accounting\Enums\DocumentStatus;
-use Karnoweb\Accounting\Exceptions\ClosedFiscalYearException;
 use Karnoweb\Accounting\Exceptions\DuplicateIdempotencyKeyException;
 use Karnoweb\Accounting\Exceptions\UnbalancedDocumentException;
 use Karnoweb\Accounting\Models\Account;
@@ -24,7 +23,8 @@ class DocumentService
 {
     public function __construct(
         private BalanceService $balanceService,
-        private AccountService $accountService
+        private AccountService $accountService,
+        private FiscalYearService $fiscalYearService
     ) {}
 
     public function create(array $data): Document
@@ -43,7 +43,9 @@ class DocumentService
                     $this->validateItems($data['items'] ?? []);
                     $this->assertIdempotencyKeyAvailable($data['idempotency_key'] ?? null);
 
-                    $branchId = $data['branch_id'] ?? $this->getDefaultBranchId();
+                    $branchId = array_key_exists('branch_id', $data)
+                        ? $data['branch_id']
+                        : $this->getDefaultBranchId();
                     $number = $manualNumber
                         ? (int) $data['number']
                         : $this->allocateNextNumber($fiscalYear, $branchId);
@@ -278,17 +280,7 @@ class DocumentService
 
     private function validateFiscalYear(FiscalYear $fiscalYear, string $date): void
     {
-        if ($fiscalYear->isClosed()) {
-            throw new ClosedFiscalYearException($fiscalYear);
-        }
-
-        if ( ! $fiscalYear->isActive()) {
-            throw new RuntimeException(__('accounting::accounting.messages.fiscal_year_not_active'));
-        }
-
-        if (config('accounting.validation.check_date_range', true) && ! $fiscalYear->containsDate($date)) {
-            throw new RuntimeException(__('accounting::accounting.validation.date_out_of_fiscal_year'));
-        }
+        $this->fiscalYearService->assertAcceptsPosting($fiscalYear, $date);
     }
 
     private function getDefaultBranchId(): ?int

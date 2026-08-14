@@ -45,6 +45,7 @@ return [
             'sales_income' => '410101',
             'cost_of_goods' => '510101',
             'refund_expense' => '520101',
+            'retained_earnings' => '310101',
         ],
     ],
 
@@ -59,7 +60,8 @@ return [
     'fiscal_year' => [
         'auto_detect' => true,
         'default_id' => null,
-        // Package model forbids overlapping date ranges.
+        // Overlapping ranges are rejected in FiscalYearService (portable across SQLite/MySQL/PostgreSQL).
+        // Exact duplicate (start_date, end_date) is also unique at the database.
         'allow_overlap' => false,
     ],
 

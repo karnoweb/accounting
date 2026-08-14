@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Karnoweb\Accounting\Enums\FiscalYearStatus;
+use Karnoweb\Accounting\Exceptions\FiscalYearOverlapException;
 use Karnoweb\Accounting\Services\FiscalYearService;
 
 class FiscalYear extends BaseModel
@@ -89,8 +90,10 @@ class FiscalYear extends BaseModel
 
     public function scopeContainingDate(Builder $query, $date): Builder
     {
-        return $query->where('start_date', '<=', $date)
-            ->where('end_date', '>=', $date);
+        $normalized = Carbon::parse($date)->toDateString();
+
+        return $query->whereDate('start_date', '<=', $normalized)
+            ->whereDate('end_date', '>=', $normalized);
     }
 
     public function getStatusLabelAttribute(): string
@@ -115,16 +118,64 @@ class FiscalYear extends BaseModel
         return $date->between($this->start_date, $this->end_date);
     }
 
+    /**
+     * Active current fiscal year. Closed and draft years are never returned.
+     */
     public static function current(): ?self
     {
-        return static::where('is_current', true)->first()
-            ?? static::where('status', 'active')->first();
+        return static::query()
+            ->where('status', FiscalYearStatus::ACTIVE)
+            ->where('is_current', true)
+            ->first()
+            ?? static::query()->where('status', FiscalYearStatus::ACTIVE)->first();
     }
 
+    /**
+     * Fiscal year whose range contains $date. Ambiguous overlaps are rejected.
+     */
     public static function findByDate($date): ?self
     {
-        return static::containingDate($date)
-            ->orderByRaw("CASE status WHEN 'active' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END")
-            ->first();
+        $normalized = Carbon::parse($date)->toDateString();
+        $matches = static::containingDate($normalized)->orderBy('id')->get();
+
+        if ($matches->count() > 1) {
+            throw new FiscalYearOverlapException(
+                __('accounting::accounting.messages.fiscal_year_ambiguous')
+            );
+        }
+
+        return $matches->first();
+    }
+
+    /**
+     * Activate this fiscal year via the canonical service (does not create opening entries).
+     */
+    public function activate(): self
+    {
+        return app(FiscalYearService::class)->activate($this);
+    }
+
+    /**
+     * Close this fiscal year via the canonical service (does not create closing entries).
+     */
+    public function close(): self
+    {
+        return app(FiscalYearService::class)->close($this);
+    }
+
+    /**
+     * Mark opening_done via the canonical service (does not create opening journals).
+     */
+    public function completeOpening(): self
+    {
+        return app(FiscalYearService::class)->completeOpening($this);
+    }
+
+    /**
+     * Clear opening_done via the canonical service (does not void documents).
+     */
+    public function revertOpening(): self
+    {
+        return app(FiscalYearService::class)->revertOpening($this);
     }
 }

@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\DB;
 use Karnoweb\Accounting\Enums\DocumentStatus;
 use Karnoweb\Accounting\Events\DocumentCreated;
 use Karnoweb\Accounting\Exceptions\DocumentNotEditableException;
@@ -205,11 +206,20 @@ class Document extends BaseModel
             throw new Exception(__('accounting::accounting.messages.document_not_voidable'));
         }
 
-        $this->update([
-            'status' => DocumentStatus::VOIDED,
-            'notes' => ($this->notes ?? '') . "\n\nدلیل ابطال: {$reason}",
-        ]);
+        return DB::transaction(function () use ($reason) {
+            $payload = [
+                'status' => DocumentStatus::VOIDED,
+                'notes' => ($this->notes ?? '') . "\n\nدلیل ابطال: {$reason}",
+            ];
 
-        return $this;
+            // Opening/closing keys must be released in the same POSTED→VOIDED write; VOIDED rows are immutable.
+            if (in_array($this->type, ['opening', 'closing'], true)) {
+                $payload['idempotency_key'] = null;
+            }
+
+            $this->update($payload);
+
+            return $this;
+        });
     }
 }

@@ -39,6 +39,8 @@ class DocumentBuilder
 
     private ?int $branchId = null;
 
+    private bool $branchSpecified = false;
+
     private ?int $fiscalYearId = null;
 
     private ?string $sourceType = null;
@@ -105,6 +107,7 @@ class DocumentBuilder
     public function branch(Model|int $branch): self
     {
         $this->branchId = $branch instanceof Model ? $branch->getKey() : (int) $branch;
+        $this->branchSpecified = true;
 
         return $this;
     }
@@ -196,16 +199,15 @@ class DocumentBuilder
         return $posted;
     }
 
-    /** @return array{type: string, date: string, description: ?string, notes: ?string, reference: ?string, branch_id: ?int, fiscal_year_id: ?int, source_type: ?string, source_id: ?int, idempotency_key: ?string, meta: ?array, items: array} */
+    /** @return array{type: string, date: string, description: ?string, notes: ?string, reference: ?string, fiscal_year_id: ?int, source_type: ?string, source_id: ?int, idempotency_key: ?string, meta: ?array, items: array, branch_id?: ?int} */
     public function toArray(): array
     {
-        return [
+        $data = [
             'type' => $this->type,
             'date' => $this->date,
             'description' => $this->description,
             'notes' => $this->notes,
             'reference' => $this->reference,
-            'branch_id' => $this->branchId,
             'fiscal_year_id' => $this->fiscalYearId,
             'source_type' => $this->sourceType,
             'source_id' => $this->sourceId,
@@ -213,6 +215,13 @@ class DocumentBuilder
             'meta' => $this->meta,
             'items' => array_values($this->items),
         ];
+
+        // ponytail: omit unspecified branch_id so DocumentService can distinguish omitted vs explicit null
+        if ($this->branchSpecified) {
+            $data['branch_id'] = $this->branchId;
+        }
+
+        return $data;
     }
 
     private function addItem(Account|int $account, float $amount, int $sign, ?string $description): void
@@ -238,6 +247,7 @@ class DocumentBuilder
         $this->notes = null;
         $this->reference = null;
         $this->branchId = null;
+        $this->branchSpecified = false;
         $this->fiscalYearId = null;
         $this->sourceType = null;
         $this->sourceId = null;

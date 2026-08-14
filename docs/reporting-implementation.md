@@ -66,7 +66,7 @@ This phase adds a **read-only, in-memory rollup** (`HierarchyRollup`) that loads
 
 ## 5. Existing fiscal-year behavior
 
-`FiscalYear::current()`: `is_current = true` row, else first `active` row. `FiscalYear::findByDate()`: containing range, preferring `active` over `draft`. Overlap is rejected at create/update time (`FiscalYearService::assertNoOverlap`, `config('accounting.fiscal_year.allow_overlap')`, default `false`). Closed fiscal years (`status = closed`) reject new postings (`DocumentService::validateFiscalYear` → `ClosedFiscalYearException`) but remain fully queryable — nothing in the schema or services blocks reading a closed FY's documents. This phase relies on that: **a closed FY's posted documents must remain a valid opening-balance source for the next FY**, which the ledger queries already support by not filtering on FY status.
+`FiscalYear::current()`: `status = active` AND `is_current = true`, else first `active` row. Never returns draft or closed. `FiscalYear::findByDate()`: the unique containing range; more than one match throws `FiscalYearOverlapException`. Overlap is rejected at create/update (`FiscalYearService::assertNoOverlap`, `config('accounting.fiscal_year.allow_overlap')`, default `false`). Closed fiscal years (`status = closed`) reject new postings (`FiscalYearService::assertAcceptsPosting` → `ClosedFiscalYearException`) but remain fully queryable — nothing in the schema or services blocks reading a closed FY's documents. FY-scoped opening does **not** inherit prior years; date-only opening still uses lifetime posted history, including closed years. Ledger queries do not filter on FY status.
 
 ## 6. Existing cache behavior
 
@@ -111,7 +111,7 @@ New migration `2024_01_01_000009_add_reporting_indexes.php` (see §14).
 - `ReportService::trialBalance()` — signature, defaults, and return shape untouched.
 - `BalanceService::getBalance()`, `calculateRealtime()`, `getBalanceAsOf()`, `getDebitTotal()`, `getCreditTotal()`, `refreshCache()`, `updateAfterDocument()`, `reverseDocument()`, `fiscalYearCacheKey()` — untouched.
 - `Account`, `Document`, `DocumentItem`, `FiscalYear`, `Branch`, `CostCenter`, `DocumentNumberSequence` models — no new columns, casts, or relations.
-- `AccountHierarchy`, `AccountService`, `DocumentService`, `DocumentBuilder`, `FiscalYearService`, `HasAccount`, `DocumentObserver` — untouched.
+- `AccountHierarchy`, `AccountService`, `DocumentBuilder`, `HasAccount`, `DocumentObserver` — untouched in 13.2. `FiscalYearService` / `DocumentService` posting gate gained the 13.3 lifecycle (`assertAcceptsPosting`); reporting reads are unchanged.
 - No FY dashboard caching changes (`accounting.balance.cache_enabled` behavior is unaffected).
 - No Balance Sheet, Opening Balance, Fiscal Year Close, Customer/Supplier subledger, Cash Flow Statement, or counter-account resolution is introduced (explicitly out of scope for this phase).
 
@@ -135,11 +135,12 @@ document_items.order ASC, document_items.id ASC
 
 Never `created_at`.
 
-**Opening vs. period, precisely:** `LedgerQuery::openingQuery()` sums everything with
-`documents.date < from`, deliberately **ignoring** any `fiscal_year_id` filter (so a
-previous, even closed, fiscal year correctly contributes to the next year's opening
-balance) but still honoring account/branch scoping. `LedgerQuery::baseQuery()` (used for
-period figures, GL/AS detail lines, and turnover) applies `from <= date <= to`, plus
+**Opening vs. period, precisely:** `LedgerQuery::openingQuery()` sums posted lines with
+`documents.date < from`, still honoring account/branch scoping. When the query is
+fiscal-year scoped (`fiscalYearId` set), opening is also restricted to that same
+`fiscal_year_id` — prior years must not leak into FY-scoped reports. Date-only queries
+(no fiscal year) keep lifetime opening. `LedgerQuery::baseQuery()` (used for period
+figures, GL/AS detail lines, and turnover) applies `from <= date <= to`, plus
 `fiscal_year_id` **only if the caller explicitly scoped one**. Branch and account filters
 apply to both — branch is a document-level partition, not an account-level one (per the
 package boundary rule, `branch_id` is never assumed on `acc_accounts` as an authoritative

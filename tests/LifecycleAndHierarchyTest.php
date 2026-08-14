@@ -120,12 +120,11 @@ class LifecycleAndHierarchyTest extends TestCase
             'title' => 'Overlap',
             'start_date' => '2025-06-01',
             'end_date' => '2026-05-31',
-            'status' => 'active',
         ]);
     }
 
     public function test_package_version_matches_composer(): void
     {
-        $this->assertSame('13.2.0', Accounting::version());
+        $this->assertSame('13.3.0', Accounting::version());
     }
 }

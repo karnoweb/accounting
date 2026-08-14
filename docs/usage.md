@@ -268,11 +268,33 @@ $statement = Accounting::report()->accountStatement(
 
 ## سال مالی و شعبه
 
-```php
-$fy = Accounting::currentFiscalYear();
-$fy = Accounting::fiscalYear()->current();
-$fy = Accounting::fiscalYear()->findByDate('2024-05-01');
+چرخهٔ سال مالی از ۱۳.۳.۰: `create` (همیشه `draft`) → `activate` → `close`. سال بسته قابل بازگشایی نیست. بستن سال سند اختتامیه نمی‌سازد.
 
+```php
+$fy = Accounting::fiscalYear()->create([
+    'title' => 'FY 2025',
+    'start_date' => '2025-01-01',
+    'end_date' => '2025-12-31',
+]);
+$fy = Accounting::fiscalYear()->activate($fy);
+// ... posting ...
+Accounting::fiscalYear()->validateCanClose($fy);
+$fy = Accounting::fiscalYear()->close($fy);
+
+$fy = Accounting::currentFiscalYear(); // active + current only; never closed
+$fy = Accounting::fiscalYear()->findByDate('2025-05-01');
+```
+
+قوانین کوتاه:
+
+- در هر لحظه حداکثر یک سال `active` (و همان `is_current`).
+- پیش‌نویس قابل ویرایش تاریخ است؛ سال فعال فقط عنوان؛ سال بسته هیچ ویرایشی ندارد.
+- `opening_done` با activate/close تغییر نمی‌کند (افتتاحیه هنوز پیاده نشده).
+- پس از close، تراز آزمایشی / دفتر کل / دفتر معین همان دفتر ثبت‌شده را برمی‌گردانند.
+
+مستند کامل: [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md).
+
+```php
 $branch = Accounting::currentBranch();
 ```
 
@@ -366,6 +388,8 @@ Event::listen(DocumentPosted::class, function (DocumentPosted $event) {
 |--------|------|
 | `UnbalancedDocumentException` | جمع بدهکار ≠ بستانکار |
 | `ClosedFiscalYearException` | سند در سال مالی بسته |
+| `FiscalYearStateException` | گذار نامعتبر سال مالی (activate/close/ویرایش) |
+| `InvalidFiscalYearException` | دادهٔ نامعتبر سال مالی (عنوان/بازه) |
 | `InactiveAccountException` | حساب غیرفعال |
 | `InvalidPostingAccountException` | حساب گروه/کل/معین یا غیرقابل‌ثبت |
 | `InvalidAccountHierarchyException` | نقض حداکثر سطح / سلسله‌مراتب |

@@ -112,8 +112,8 @@ class TrialBalanceTest extends TestCase
         $this->assertEqualsWithDelta(30.0, $row->periodDebit, 0.001);
     }
 
-    // 7. previous FY contributes to opening
-    public function test_previous_fiscal_year_contributes_to_opening(): void
+    // 7. FY-scoped opening ignores previous FY; date-only still sees it
+    public function test_previous_fiscal_year_does_not_contribute_to_fy_scoped_opening(): void
     {
         $fy2024 = $this->createActiveFiscalYear('FY2024', '2024-01-01', '2024-12-31', false);
         $fy2025 = $this->createActiveFiscalYear('FY2025', '2025-01-01', '2025-12-31', true);
@@ -122,14 +122,22 @@ class TrialBalanceTest extends TestCase
         $this->postDocument($fy2024, '2024-06-01', $chart['detail'], $chart['detail2'], 500);
         $this->postDocument($fy2025, '2025-03-01', $chart['detail'], $chart['detail2'], 80);
 
-        $row = Accounting::report()->trialBalanceDetailed($fy2025)->find($chart['detail']->id);
+        $scoped = Accounting::report()->trialBalanceDetailed($fy2025)->find($chart['detail']->id);
 
-        $this->assertEqualsWithDelta(500.0, $row->openingDebit, 0.001);
-        $this->assertEqualsWithDelta(80.0, $row->periodDebit, 0.001);
-        $this->assertEqualsWithDelta(580.0, $row->endingDebit, 0.001);
+        $this->assertEqualsWithDelta(0.0, $scoped->openingDebit, 0.001);
+        $this->assertEqualsWithDelta(80.0, $scoped->periodDebit, 0.001);
+        $this->assertEqualsWithDelta(80.0, $scoped->endingDebit, 0.001);
+
+        $lifetime = Accounting::report()->trialBalanceDetailed(
+            LedgerQuery::make()->from('2025-01-01')->to('2025-12-31')
+        )->find($chart['detail']->id);
+
+        $this->assertEqualsWithDelta(500.0, $lifetime->openingDebit, 0.001);
+        $this->assertEqualsWithDelta(80.0, $lifetime->periodDebit, 0.001);
+        $this->assertEqualsWithDelta(580.0, $lifetime->endingDebit, 0.001);
     }
 
-    // 8. closed FY remains readable (and still contributes to opening)
+    // 8. closed FY remains readable in its own reports; target FY does not inherit it
     public function test_closed_fiscal_year_remains_readable(): void
     {
         $fy2024 = $this->createActiveFiscalYear('FY2024', '2024-01-01', '2024-12-31', false);
@@ -139,9 +147,59 @@ class TrialBalanceTest extends TestCase
 
         $fy2025 = $this->createActiveFiscalYear('FY2025', '2025-01-01', '2025-12-31', true);
 
-        $row = Accounting::report()->trialBalanceDetailed($fy2025)->find($chart['detail']->id);
+        $own = Accounting::report()->trialBalanceDetailed($fy2024)->find($chart['detail']->id);
+        $this->assertEqualsWithDelta(0.0, $own->openingDebit, 0.001);
+        $this->assertEqualsWithDelta(300.0, $own->periodDebit, 0.001);
+        $this->assertEqualsWithDelta(300.0, $own->endingDebit, 0.001);
 
-        $this->assertEqualsWithDelta(300.0, $row->openingDebit, 0.001);
+        $next = Accounting::report()->trialBalanceDetailed($fy2025)->find($chart['detail']->id);
+        $this->assertEqualsWithDelta(0.0, $next->openingDebit, 0.001);
+        $this->assertEqualsWithDelta(0.0, $next->periodDebit, 0.001);
+        $this->assertEqualsWithDelta(0.0, $next->endingDebit, 0.001);
+    }
+
+    public function test_fy_scoped_mid_period_opening_includes_same_fy_prior_activity(): void
+    {
+        $fy = $this->createActiveFiscalYear();
+        $chart = $this->createPostableChart();
+        $this->postDocument($fy, '2025-01-05', $chart['detail'], $chart['detail2'], 200);
+
+        $row = Accounting::report()->trialBalanceDetailed(
+            LedgerQuery::make()->forFiscalYear($fy)->from('2025-02-01')->to('2025-12-31')
+        )->find($chart['detail']->id);
+
+        $this->assertEqualsWithDelta(200.0, $row->openingDebit, 0.001);
+        $this->assertEqualsWithDelta(0.0, $row->periodDebit, 0.001);
+        $this->assertEqualsWithDelta(200.0, $row->endingDebit, 0.001);
+    }
+
+    public function test_fy_scoped_full_year_treats_start_date_opening_as_period(): void
+    {
+        $fy2024 = $this->createActiveFiscalYear('FY2024', '2024-01-01', '2024-12-31', false);
+        $fy2025 = $this->createActiveFiscalYear('FY2025', '2025-01-01', '2025-12-31', true);
+        $chart = $this->createPostableChart();
+
+        $this->postDocument($fy2024, '2024-06-01', $chart['detail'], $chart['detail2'], 500);
+
+        app(DocumentService::class)->post(app(DocumentService::class)->create([
+            'type' => 'opening',
+            'date' => '2025-01-01',
+            'fiscal_year_id' => $fy2025->id,
+            'items' => $this->balancedItems($chart['detail'], $chart['detail2'], 500),
+        ]));
+        $this->postDocument($fy2025, '2025-03-01', $chart['detail'], $chart['detail2'], 80);
+
+        $fullYear = Accounting::report()->trialBalanceDetailed($fy2025)->find($chart['detail']->id);
+        $this->assertEqualsWithDelta(0.0, $fullYear->openingDebit, 0.001);
+        $this->assertEqualsWithDelta(580.0, $fullYear->periodDebit, 0.001);
+        $this->assertEqualsWithDelta(580.0, $fullYear->endingDebit, 0.001);
+
+        $midYear = Accounting::report()->trialBalanceDetailed(
+            LedgerQuery::make()->forFiscalYear($fy2025)->from('2025-02-01')->to('2025-12-31')
+        )->find($chart['detail']->id);
+        $this->assertEqualsWithDelta(500.0, $midYear->openingDebit, 0.001);
+        $this->assertEqualsWithDelta(80.0, $midYear->periodDebit, 0.001);
+        $this->assertEqualsWithDelta(580.0, $midYear->endingDebit, 0.001);
     }
 
     // 9. branch filter

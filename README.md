@@ -15,15 +15,17 @@
 
 ```bash
 # Laravel 13
-composer require karnoweb/laravel-accounting:^13.2
+composer require karnoweb/laravel-accounting:^13.3
 
 # Laravel 11–12
 composer require karnoweb/laravel-accounting:^1.0
 ```
 
-نسخه فعلی: **13.2.0** — `Accounting::version()` از `composer.json` خوانده می‌شود.
+نسخه فعلی: **13.3.0** — `Accounting::version()` از `composer.json` خوانده می‌شود.
 
 از 13.1 اینثوریانت‌های کرنل دفتر (ثبت فقط روی حساب قابل‌ثبت، تغییرناپذیری خطوط posted، مسیر کانونیکال post، تراز FY-aware، شماره‌گذاری امن، ایزوله بودن builder) در خود پکیج تضمین می‌شوند. جزئیات: [docs/usage.md](docs/usage.md).
+
+از **13.3** سال مالی یک چرخهٔ واقعی دارد (`draft → active → closed`) با `create` / `update` / `activate` / `close`. بستن سال ثبت سند را متوقف می‌کند ولی تاریخچه و گزارش‌ها را حذف نمی‌کند. افتتاحیه/اختتامیهٔ حسابداری هنوز پیاده نشده. جزئیات: [docs/fiscal-year-lifecycle.md](docs/fiscal-year-lifecycle.md).
 
 از **13.2** یک لایهٔ گزارش‌گیری واقعی روی همان دفتر ثبت‌شده (`acc_document_items JOIN acc_documents`، بدون `cached_balance`) اضافه شده: تراز آزمایشی واقعی با رول‌آپ سلسله‌مراتب (`trialBalanceDetailed`)، دفتر کل (`generalLedger`)، دفتر معین یک حساب (`accountStatement`) و گردش حساب FY/شعبه-آگاه. جزئیات: [docs/09-reports.md](docs/09-reports.md).
 

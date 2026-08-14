@@ -12,6 +12,8 @@ use Karnoweb\Accounting\Services\BalanceService;
 use Karnoweb\Accounting\Services\DocumentBuilder;
 use Karnoweb\Accounting\Services\DocumentService;
 use Karnoweb\Accounting\Services\FiscalYearService;
+use Karnoweb\Accounting\Services\ClosingService;
+use Karnoweb\Accounting\Services\OpeningService;
 use Karnoweb\Accounting\Services\ReportService;
 
 class AccountingServiceProvider extends ServiceProvider
@@ -30,7 +32,8 @@ class AccountingServiceProvider extends ServiceProvider
         $this->app->singleton(DocumentService::class, function ($app) {
             return new DocumentService(
                 $app->make(BalanceService::class),
-                $app->make(AccountService::class)
+                $app->make(AccountService::class),
+                $app->make(FiscalYearService::class)
             );
         });
 
@@ -49,18 +52,39 @@ class AccountingServiceProvider extends ServiceProvider
             );
         });
 
+        $this->app->singleton(OpeningService::class, function ($app) {
+            return new OpeningService(
+                $app->make(DocumentService::class),
+                $app->make(FiscalYearService::class),
+                $app->make(AccountService::class)
+            );
+        });
+
+        $this->app->singleton(ClosingService::class, function ($app) {
+            return new ClosingService(
+                $app->make(DocumentService::class),
+                $app->make(FiscalYearService::class),
+                $app->make(AccountService::class)
+            );
+        });
+
         $this->app->singleton('accounting', function ($app) {
             return new AccountingManager(
                 $app->make(DocumentService::class),
                 $app->make(AccountService::class),
                 $app->make(BalanceService::class),
                 $app->make(ReportService::class),
-                $app->make(FiscalYearService::class)
+                $app->make(FiscalYearService::class),
+                $app->make(OpeningService::class),
+                $app->make(ClosingService::class)
             );
         });
 
         $this->app->singleton(DocumentObserver::class, function ($app) {
-            return new DocumentObserver($app->make(BalanceService::class));
+            return new DocumentObserver(
+                $app->make(BalanceService::class),
+                $app->make(FiscalYearService::class)
+            );
         });
     }
 

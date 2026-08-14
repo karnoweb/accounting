@@ -81,8 +81,8 @@
 | start_date | date | ❌ | - | تاریخ شروع |
 | end_date | date | ❌ | - | تاریخ پایان |
 | status | enum | ❌ | draft | وضعیت (draft, active, closed) |
-| is_current | boolean | ❌ | false | سال مالی جاری |
-| opening_done | boolean | ❌ | false | افتتاحیه انجام شده |
+| is_current | boolean | ❌ | false | سال مالی جاری — حداکثر یک ردیف active+current (اعمال در سرویس) |
+| opening_done | boolean | ❌ | false | افتتاحیه انجام شده (فاز بعد؛ close/activate آن را true نمی‌کنند) |
 | opened_at | timestamp | ✅ | null | زمان افتتاح |
 | closed_at | timestamp | ✅ | null | زمان بستن |
 | created_at | timestamp | ✅ | null | زمان ایجاد |
@@ -101,9 +101,11 @@
 | نام | فیلد(ها) | نوع | شرح |
 |-----|----------|-----|-----|
 | PRIMARY | id | Primary | کلید اصلی |
-| fiscal_years_dates_unique | start_date, end_date | Unique | یکتایی بازه |
+| fiscal_years_dates_unique | start_date, end_date | Unique | یکتایی بازهٔ دقیق |
 | fiscal_years_status_index | status | Index | فیلتر وضعیت |
 | fiscal_years_is_current_index | is_current | Index | یافتن سال جاری |
+
+هم‌پوشانی بازه‌های غیریکسان (مثلاً ژانویه–دسامبر در برابر ژوئن–مه) با محدودیت قابل‌حمل دیتابیس قابل بیان نیست؛ در `FiscalYearService` داخل تراکنش رد می‌شود. جزئیات چرخه: [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md).
 
 ### ۳.۵ نمونه داده
 

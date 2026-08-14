@@ -839,6 +839,8 @@ public function branchReport(
 
 ## ۷. FiscalYearService
 
+Canonical lifecycle API (13.3.0). See [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md).
+
 ### ۷.۱ دسترسی
 
 ```php
@@ -847,9 +849,9 @@ $fiscalYearService = Accounting::fiscalYear();
 $fiscalYearService = app(FiscalYearService::class);
 ```
 
-### ۷.۲ متدهای CRUD
+### ۷.۲ پیکربندی
 
-**create**
+**create** — always `draft`. Does not accept `status` / `is_current` / `opening_done`.
 
 ```php
 public function create(array $data): FiscalYear
@@ -860,101 +862,33 @@ public function create(array $data): FiscalYear
 | title | string | ✅ | عنوان |
 | start_date | string/Carbon | ✅ | تاریخ شروع |
 | end_date | string/Carbon | ✅ | تاریخ پایان |
-| status | string | ❌ | وضعیت (پیش‌فرض: draft) |
 
-مثال:
-
-```php
-$fiscalYear = Accounting::fiscalYear()->create([
-    'title' => 'سال مالی ۱۴۰۴',
-    'start_date' => '1404-01-01',
-    'end_date' => '1404-12-29',
-]);
-```
-
-**update**
+**update** — draft: title+dates; active: title only; closed: rejected.
 
 ```php
 public function update(FiscalYear|int $fiscalYear, array $data): FiscalYear
 ```
 
-**delete**
-
-```php
-public function delete(FiscalYear|int $fiscalYear): bool
-```
-
-⚠️ سال مالی دارای سند قابل حذف نیست.
-
-### ۷.۳ متدهای وضعیت
-
-**activate**
+### ۷.۳ وضعیت
 
 ```php
 public function activate(FiscalYear|int $fiscalYear): FiscalYear
-```
-
-فعال کردن سال مالی (تغییر به active).
-
-**close**
-
-```php
+public function validateCanClose(FiscalYear|int $fiscalYear): void
 public function close(FiscalYear|int $fiscalYear): FiscalYear
+public function assertAcceptsPosting(FiscalYear $fiscalYear, string $date): void
 ```
 
-بستن سال مالی (تغییر به closed).
+- `activate()` does not create opening entries (`opening_done` stays false).
+- `close()` does not create closing entries or the next fiscal year.
+- There is **no** `reopen()`, `createOpening()`, or `createClosing()` in this version.
 
-**reopen**
+### ۷.۴ جستجو
 
 ```php
-public function reopen(FiscalYear|int $fiscalYear): FiscalYear
+public function current(): ?FiscalYear          // active current only
+public function findByDate(string $date): ?FiscalYear  // unique containing year; overlap → exception
+public function assertNoOverlap(string $startDate, string $endDate, ?int $exceptId = null): void
 ```
-
-بازگشایی سال مالی بسته.
-
-### ۷.۴ متدهای عملیاتی
-
-**createOpening**
-
-```php
-public function createOpening(FiscalYear|int $fiscalYear, ?FiscalYear $previousYear = null): Document
-```
-
-ایجاد سند افتتاحیه از روی سال قبل.
-
-**createClosing**
-
-```php
-public function createClosing(FiscalYear|int $fiscalYear): Document
-```
-
-ایجاد سند اختتامیه و بستن حساب‌های موقت.
-
-### ۷.۵ متدهای جستجو
-
-**current**
-
-```php
-public function current(): ?FiscalYear
-```
-
-دریافت سال مالی جاری.
-
-**findByDate**
-
-```php
-public function findByDate(Carbon|string $date): ?FiscalYear
-```
-
-یافتن سال مالی شامل یک تاریخ.
-
-**all**
-
-```php
-public function all(): Collection
-```
-
-همه سال‌های مالی.
 
 ---
 

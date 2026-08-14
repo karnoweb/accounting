@@ -13,6 +13,8 @@ use Karnoweb\Accounting\Services\BalanceService;
 use Karnoweb\Accounting\Services\DocumentBuilder;
 use Karnoweb\Accounting\Services\DocumentService;
 use Karnoweb\Accounting\Services\FiscalYearService;
+use Karnoweb\Accounting\Services\ClosingService;
+use Karnoweb\Accounting\Services\OpeningService;
 use Karnoweb\Accounting\Services\ReportService;
 
 /**
@@ -27,7 +29,9 @@ class AccountingManager
         protected AccountService $accountService,
         protected BalanceService $balanceService,
         protected ReportService $reportService,
-        protected FiscalYearService $fiscalYearService
+        protected FiscalYearService $fiscalYearService,
+        protected OpeningService $openingService,
+        protected ClosingService $closingService
     ) {}
 
     /**
@@ -56,10 +60,22 @@ class AccountingManager
         return $this->reportService;
     }
 
-    /** Get the fiscal year service for resolving current or date-based fiscal year. */
+    /** Get the fiscal year service for resolving current or date-based fiscal year and running lifecycle transitions. */
     public function fiscalYear(): FiscalYearService
     {
         return $this->fiscalYearService;
+    }
+
+    /** Manual opening journals and carry-forward (type=opening). */
+    public function opening(): OpeningService
+    {
+        return $this->openingService;
+    }
+
+    /** P&L close journals (type=closing) into retained earnings. */
+    public function closing(): ClosingService
+    {
+        return $this->closingService;
     }
 
     /** Get the currently active fiscal year, or null if none. */

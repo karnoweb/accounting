@@ -1,5 +1,27 @@
 # Changelog
 
+## [13.3.0] - 2026-08-14
+
+### Added
+
+- **Fiscal Year lifecycle** — `FiscalYearService` is now the canonical API for configuration and state transitions:
+  - `create()` — draft only; required title; normalized dates; `start_date <= end_date`; overlapping and exact-duplicate ranges rejected; lifecycle fields (`status`, `is_current`, `opening_done`, `opened_at`, `closed_at`) cannot be set on create.
+  - `update()` — draft years may change title and dates (overlap re-checked); active years may change title only; closed years are not editable.
+  - `activate()` — `draft → active`, records `opened_at`, sets the sole `is_current` row, refuses a second active year. Does **not** create opening journal entries; `opening_done` stays false.
+  - `validateCanClose()` / `close()` — transactional `active → closed`; requires no draft/pending/approved documents; sets `closed_at` and clears `is_current`. Does **not** create closing entries, next-year rows, or mutate posted ledger history.
+  - `assertAcceptsPosting()` — single posting gate used by `DocumentService` (draft rejected, active allowed, closed → `ClosedFiscalYearException`).
+- Exceptions: `InvalidFiscalYearException`, `FiscalYearStateException`.
+- `FiscalYear::activate()` / `FiscalYear::close()` delegate to the service (same rules; they cannot bypass validation).
+- Lookup: `current()` never returns draft or closed; `findByDate()` returns the unique containing year (including closed, for history) and throws on ambiguous overlap.
+- Focused tests in `tests/FiscalYearLifecycleTest.php` (create/edit/activate/close/posting/lookup/reporting-after-close).
+
+### Notes
+
+- Closed fiscal years remain fully readable in Trial Balance, General Ledger, and Account Statement.
+- Closed years **cannot be reopened** (no `reopen()` method). Opening balances, closing journals, carry-forward, and next-year generation are **not** implemented.
+- No new migration. Overlap of non-exact ranges and single-current-FY are enforced in the service (portable DB constraints are not available for those invariants). See [docs/fiscal-year-lifecycle.md](docs/fiscal-year-lifecycle.md).
+- Minor release: additive service API; existing reporting and posting invariants are unchanged. `create()` no longer accepts `status` / `is_current` — use `activate()`.
+
 ## [13.2.0] - 2026-08-14
 
 ### Added
