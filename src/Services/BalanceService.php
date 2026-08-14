@@ -11,6 +11,7 @@ use Karnoweb\Accounting\Models\Account;
 use Karnoweb\Accounting\Models\Document;
 use Karnoweb\Accounting\Models\DocumentItem;
 use Karnoweb\Accounting\Models\FiscalYear;
+use Karnoweb\Accounting\Reporting\LedgerQuery;
 
 /**
  * Service for account balances: current balance, balance as-of date, debit/credit totals, turnover, and cache refresh.
@@ -121,31 +122,32 @@ class BalanceService
     /**
      * Get debit, credit and balance (debit - credit) for the account in a date range.
      *
+     * Backward compatible: the 3-argument call reproduces the exact 13.1.0 query.
+     * Pass $options to additionally scope by fiscal year and/or branch:
+     *
+     * @param array{fiscal_year?: FiscalYear|int|null, branch_id?: int|null} $options
+     *        'fiscal_year' restricts to that fiscal year's documents.
+     *        'branch_id' restricts to that branch (explicit null = documents without a branch).
      * @return array{debit: float, credit: float, balance: float}
      */
-    public function getTurnover(Account|int $account, Carbon|string $fromDate, Carbon|string $toDate): array
+    public function getTurnover(Account|int $account, Carbon|string $fromDate, Carbon|string $toDate, array $options = []): array
     {
         $account = $this->resolveAccount($account);
-        $fromDate = Carbon::parse($fromDate);
-        $toDate = Carbon::parse($toDate);
 
-        $result = DocumentItem::query()
-            ->where('account_id', $account->id)
-            ->whereHas('document', function ($q) use ($fromDate, $toDate) {
-                $q->where('status', 'posted')
-                    ->whereBetween('date', [$fromDate, $toDate]);
-            })
-            ->selectRaw('
-                COALESCE(SUM(CASE WHEN sign = 1 THEN amount ELSE 0 END), 0) as debit,
-                COALESCE(SUM(CASE WHEN sign = -1 THEN amount ELSE 0 END), 0) as credit
-            ')
-            ->first();
+        $query = LedgerQuery::make()
+            ->forAccount($account)
+            ->from($fromDate)
+            ->to($toDate);
 
-        return [
-            'debit' => (float) ($result->debit ?? 0),
-            'credit' => (float) ($result->credit ?? 0),
-            'balance' => (float) (($result->debit ?? 0) - ($result->credit ?? 0)),
-        ];
+        if (array_key_exists('fiscal_year', $options)) {
+            $query->forFiscalYear($options['fiscal_year']);
+        }
+
+        if (array_key_exists('branch_id', $options)) {
+            $query->branch($options['branch_id']);
+        }
+
+        return $query->periodTotals();
     }
 
     public function refreshCache(Account|int $account, ?FiscalYear $fiscalYear = null): float

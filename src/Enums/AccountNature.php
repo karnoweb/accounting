@@ -44,6 +44,20 @@ enum AccountNature: string
         };
     }
 
+    /**
+     * Nature-aware signed movement: for a DEBIT-nature account (asset, expense),
+     * debit increases it; for a CREDIT-nature account (income, liability, equity),
+     * credit increases it. Never use abs($balance) as a substitute — e.g. a debit
+     * sales return on an income account must reduce that income, not increase it.
+     */
+    public function naturalAmount(float $debit, float $credit): float
+    {
+        return match ($this) {
+            self::DEBIT => $debit - $credit,
+            self::CREDIT => $credit - $debit,
+        };
+    }
+
     public static function values(): array
     {
         return array_column(self::cases(), 'value');

@@ -219,8 +219,12 @@ $balance = Accounting::balance()->getBalanceAsOf($account, '2024-06-15');
 $debit  = Accounting::balance()->getDebitTotal($account);
 $credit = Accounting::balance()->getCreditTotal($account);
 
-// گردش (در بازه تاریخ)
+// گردش (در بازه تاریخ) — آرگومان چهارم اختیاری: فیلتر سال مالی/شعبه (از 13.2.0)
 $turnover = Accounting::balance()->getTurnover($account, '2024-01-01', '2024-12-31');
+$turnover = Accounting::balance()->getTurnover($account, '2024-01-01', '2024-12-31', [
+    'fiscal_year' => $fiscalYear,
+    'branch_id'   => $branchId,
+]);
 // ['debit' => float, 'credit' => float, 'balance' => float]
 
 // به‌روزرسانی کش تراز (بدون FY = lifetime؛ با FY = کش scoped)
@@ -231,11 +235,34 @@ Accounting::balance()->refreshCache($account, $fiscalYear);
 ### گزارش تراز آزمایشی (Trial Balance)
 
 ```php
+// deprecated از 13.2.0 — بدون رول‌آپ سلسله‌مراتب، بدون افتتاحیه/دورهٔ جدا
 $rows = Accounting::report()->trialBalance();
 $rows = Accounting::report()->trialBalance($fiscalYear);
-
 // هر سطر: ['account' => Account, 'debit' => float, 'credit' => float]
 ```
+
+### گزارش‌های واقعی (از 13.2.0): تراز آزمایشی، دفتر کل، دفتر معین
+
+```php
+use Karnoweb\Accounting\Reporting\LedgerQuery;
+
+// تراز آزمایشی واقعی — L0..L3، افتتاحیه/دوره/پایانی، رول‌آپ سلسله‌مراتب
+$tb = Accounting::report()->trialBalanceDetailed($fiscalYear);
+$tb->detail();     // فقط ردیف‌های تفصیلی (L3)
+$tb->totals();     // جمع‌های تطبیقی
+
+// دفتر کل — چند حساب، افتتاحیه/ردیف‌ها/مانده جاری/پایانی
+$query = LedgerQuery::make()->forAccounts([$cash, $bank])->forFiscalYear($fiscalYear);
+$gl = Accounting::report()->generalLedger($query);
+$ledger = $gl->forAccount($cash->id);
+
+// دفتر معین یک حساب — روی همان LedgerQuery
+$statement = Accounting::report()->accountStatement(
+    LedgerQuery::make()->forAccount($cash)->forFiscalYear($fiscalYear)
+);
+```
+
+جزئیات کامل (فیلترها، ترتیب قطعی، ساختار DTOها، اتحادهای تراز): **[docs/09-reports.md](09-reports.md)**.
 
 ---
 

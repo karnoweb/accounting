@@ -306,6 +306,9 @@
 | documents_type_index | type | Index | فیلتر نوع |
 | documents_status_index | status | Index | فیلتر وضعیت |
 | documents_source_index | source_type, source_id | Index | جستجوی منبع |
+| documents_status_fy_date_index | status, fiscal_year_id, date | Index | گزارش‌های محدود به یک سال مالی (از 13.2.0) |
+| documents_status_date_index | status, date | Index | گزارش‌های با بازهٔ تاریخ آزاد (از 13.2.0) |
+| documents_branch_status_date_index | branch_id, status, date | Index | گزارش‌های فیلترشده بر اساس شعبه (از 13.2.0) |
 
 ### ۶.۶ محدودیت‌ها
 
@@ -367,6 +370,7 @@
 | document_items_account_id_foreign | account_id | Foreign | رابطه حساب |
 | document_items_cost_center_id_foreign | cost_center_id | Foreign | رابطه مرکز هزینه |
 | document_items_order_index | document_id, order | Index | ترتیب آیتم‌ها |
+| document_items_account_document_index | account_id, document_id | Index | فیلتر حساب در گزارش‌ها + JOIN به documents (از 13.2.0) |
 
 ### ۷.۵ محدودیت‌ها
 
