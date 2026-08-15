@@ -41,6 +41,7 @@ Facade اصلی نقطه ورود ساده به تمام قابلیت‌های �
 | `balance()` | سرویس مانده | BalanceService |
 | `report()` | سرویس گزارش | ReportService |
 | `fiscalYear()` | سرویس سال مالی | FiscalYearService |
+| `reversal()` | برگشت عملیاتی همان سال مالی | ReversalService |
 
 ---
 
@@ -967,7 +968,11 @@ Document::thisMonth()->get();                 // این ماه
 
 ```php
 $document->post();                            // ثبت قطعی
-$document->void($reason);                     // ابطال
+$document->void($reason);                     // ابطال (سند از دفتر posted خارج می‌شود)
+$document->reverse($reason);                  // برگشت عملیاتی — سند جدید type=reversal؛ اصل دست‌نخورده می‌ماند
+$document->reversedDocument();                // سندی که این سند برگشت زده
+$document->reversals();                       // اسناد برگشت این سند
+$document->postedReversal();                  // برگشت posted جاری یا null
 $document->isPosted();                        // آیا ثبت شده؟
 $document->isEditable();                      // آیا قابل ویرایش؟
 $document->isDeletable();                     // آیا قابل حذف؟
@@ -977,7 +982,6 @@ $document->getDebitTotal();                   // جمع بدهکار
 $document->getCreditTotal();                  // جمع بستانکار
 $document->getAffectedAccounts();             // حساب‌های تأثیرپذیر
 $document->duplicate();                       // کپی سند
-$document->reverse();                         // ایجاد سند معکوس
 ```
 
 ### ۸.۳ DocumentItem
@@ -1122,6 +1126,19 @@ current_branch();
 // حساب سیستمی
 system_account('cash');
 ```
+
+---
+
+## ReversalService
+
+```php
+Accounting::reversal()->reverse($document, [
+    'reason' => 'duplicate posting',
+    'date' => '2025-06-01', // optional; must stay in the original FY
+]);
+```
+
+Same-FY operational full-document reversal. Original stays posted. Closed-FY correction is not implemented. Opening/closing documents are refused.
 
 ---
 

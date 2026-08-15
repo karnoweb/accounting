@@ -16,6 +16,7 @@ use Karnoweb\Accounting\Services\ClosingService;
 use Karnoweb\Accounting\Services\OpeningService;
 use Karnoweb\Accounting\Services\PostingService;
 use Karnoweb\Accounting\Services\ReportService;
+use Karnoweb\Accounting\Services\ReversalService;
 
 /**
  * Facade for the Accounting package.
@@ -31,6 +32,7 @@ use Karnoweb\Accounting\Services\ReportService;
  * @method static OpeningService    opening()                  Post manual opening journals and carry-forward.
  * @method static ClosingService    closing()                  Close P&L into retained earnings while the year is active.
  * @method static PostingService    posting()                  Ask whether a document may be posted (FY + date).
+ * @method static ReversalService   reversal()                 Reverse a posted operational document in the same FY.
  * @method static FiscalYear|null   currentFiscalYear()        Get the active fiscal year, or null.
  * @method static Model|null        currentBranch()            Get default branch from config, or null if disabled.
  * @method static Account           systemAccount(string $key) Get system account by key (e.g. 'cash', 'bank').

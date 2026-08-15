@@ -39,6 +39,7 @@ return [
         'opening' => 'افتتاحیه',
         'closing' => 'اختتامیه',
         'adjustment' => 'تعدیل',
+        'reversal' => 'برگشت',
     ],
 
     'general' => [
@@ -59,6 +60,10 @@ return [
         'invalid_account_hierarchy' => 'سلسله‌مراتب حساب نامعتبر است.',
         'document_not_editable' => 'سند قابل ویرایش نیست.',
         'document_not_voidable' => 'سند قابل ابطال نیست.',
+        'document_cannot_void_while_reversed' => 'تا وقتی سند برگشت ثبت‌شده وجود دارد، سند قابل ابطال نیست.',
+        'document_not_reversible' => 'سند قابل برگشت نیست.',
+        'document_type_not_reversible' => 'اسناد افتتاحیه و اختتامیه قابل برگشت نیستند.',
+        'document_has_posted_closing' => 'تا وقتی سند اختتامیه ثبت‌شده در سال مالی وجود دارد، سند قابل برگشت نیست.',
         'document_not_balanced' => 'سند متعادل نیست.',
         'document_cannot_post' => 'سند قابل ثبت قطعی نیست.',
         'duplicate_idempotency_key' => 'سندی با کلید یکتایی :key از قبل وجود دارد.',

@@ -1,5 +1,25 @@
 # Changelog
 
+## [13.4.0] - Unreleased
+
+### Added
+
+- **Operational reversal (E8)** — `ReversalService` / `Accounting::reversal()->reverse($document, $options = [])` and `Document::reverse($reason = null)`:
+  - Posts a new `type=reversal` journal in the **same active fiscal year**. Original stays `posted` and is not mutated.
+  - Full-document inverse from persisted `document_items` (`amount` unchanged, `sign` flipped). Not `cached_balance` / `BalanceService` / ledger totals.
+  - `reversed_document_id` on the new row (nullable FK, indexed, not unique). Idempotency key `reversal:{originalId}`.
+  - Reversal-of-reversal allowed. At most one posted reversal per document.
+  - Opening/closing documents refused. Posted closing in the FY blocks operational reverse (void closing first, then reverse, then re-close).
+  - Closed FY → `ClosedFiscalYearException`. Cross-FY / prior-period correction is not implemented.
+- Void guards: lock FY then document; cannot void a document that has a posted reversal; `type=reversal` releases `idempotency_key` on void (same write as opening/closing).
+- Exception: `DocumentNotReversibleException`.
+- Migration `2024_01_01_000010_add_document_reversal.php`.
+
+### Notes
+
+- **VOID ≠ REVERSAL.** Void hides the original from the posted ledger. Reversal keeps both journals.
+- Version remains **13.3.0** until release approval.
+
 ## [13.3.0] - 2026-08-15
 
 ### Added

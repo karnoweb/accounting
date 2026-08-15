@@ -39,6 +39,7 @@ return [
         'opening' => 'Opening',
         'closing' => 'Closing',
         'adjustment' => 'Adjustment',
+        'reversal' => 'Reversal',
     ],
 
     'general' => [
@@ -59,6 +60,10 @@ return [
         'invalid_account_hierarchy' => 'Invalid account hierarchy.',
         'document_not_editable' => 'Document is not editable.',
         'document_not_voidable' => 'Document cannot be voided.',
+        'document_cannot_void_while_reversed' => 'Document cannot be voided while a posted reversal exists.',
+        'document_not_reversible' => 'Document cannot be reversed.',
+        'document_type_not_reversible' => 'Opening and closing documents cannot be reversed.',
+        'document_has_posted_closing' => 'Document cannot be reversed while a posted closing document exists in the fiscal year.',
         'document_not_balanced' => 'Document is not balanced.',
         'document_cannot_post' => 'Document cannot be posted.',
         'duplicate_idempotency_key' => 'A document with idempotency key :key already exists.',

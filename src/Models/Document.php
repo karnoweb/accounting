@@ -15,6 +15,7 @@ use Karnoweb\Accounting\Enums\DocumentStatus;
 use Karnoweb\Accounting\Events\DocumentCreated;
 use Karnoweb\Accounting\Exceptions\DocumentNotEditableException;
 use Karnoweb\Accounting\Services\DocumentService;
+use Karnoweb\Accounting\Services\ReversalService;
 
 class Document extends BaseModel
 {
@@ -37,6 +38,7 @@ class Document extends BaseModel
         'source_type',
         'source_id',
         'idempotency_key',
+        'reversed_document_id',
         'posted_at',
         'created_by',
         'approved_by',
@@ -135,6 +137,23 @@ class Document extends BaseModel
         return $this->morphTo('source', 'source_type', 'source_id');
     }
 
+    public function reversedDocument(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'reversed_document_id');
+    }
+
+    public function reversals(): HasMany
+    {
+        return $this->hasMany(self::class, 'reversed_document_id')->orderBy('id');
+    }
+
+    public function postedReversal(): ?self
+    {
+        return $this->reversals()
+            ->where('status', DocumentStatus::POSTED->value)
+            ->first();
+    }
+
     public function scopePosted(Builder $query): Builder
     {
         return $query->where('status', 'posted');
@@ -186,6 +205,16 @@ class Document extends BaseModel
     }
 
     /**
+     * Create and post a same-FY operational reversal. Does not mutate this document.
+     */
+    public function reverse(?string $reason = null): self
+    {
+        $options = ($reason !== null && $reason !== '') ? ['reason' => $reason] : [];
+
+        return app(ReversalService::class)->reverse($this, $options);
+    }
+
+    /**
      * Apply posted status after DocumentService has validated all invariants.
      * Do not call this bypassing DocumentService::post() / Document::post().
      */
@@ -202,24 +231,37 @@ class Document extends BaseModel
 
     public function void(string $reason = ''): self
     {
-        if ( ! $this->isVoidable()) {
-            throw new Exception(__('accounting::accounting.messages.document_not_voidable'));
-        }
-
         return DB::transaction(function () use ($reason) {
+            FiscalYear::query()->whereKey($this->fiscal_year_id)->lockForUpdate()->firstOrFail();
+            $document = static::query()->whereKey($this->id)->lockForUpdate()->firstOrFail();
+
+            if ( ! $document->isVoidable()) {
+                throw new Exception(__('accounting::accounting.messages.document_not_voidable'));
+            }
+
+            $hasPostedReversal = static::query()
+                ->where('reversed_document_id', $document->id)
+                ->where('status', DocumentStatus::POSTED->value)
+                ->lockForUpdate()
+                ->exists();
+
+            if ($hasPostedReversal) {
+                throw new Exception(__('accounting::accounting.messages.document_cannot_void_while_reversed'));
+            }
+
             $payload = [
                 'status' => DocumentStatus::VOIDED,
-                'notes' => ($this->notes ?? '') . "\n\nدلیل ابطال: {$reason}",
+                'notes' => ($document->notes ?? '') . "\n\nدلیل ابطال: {$reason}",
             ];
 
-            // Opening/closing keys must be released in the same POSTED→VOIDED write; VOIDED rows are immutable.
-            if (in_array($this->type, ['opening', 'closing'], true)) {
+            // Keys must be released in the same POSTED→VOIDED write; VOIDED rows are immutable.
+            if (in_array($document->type, ['opening', 'closing', 'reversal'], true)) {
                 $payload['idempotency_key'] = null;
             }
 
-            $this->update($payload);
+            $document->update($payload);
 
-            return $this;
+            return $document;
         });
     }
 }

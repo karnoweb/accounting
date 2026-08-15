@@ -111,6 +111,7 @@ Historical and future dates inside an **active** year are allowed. There is no �
 | `OpeningService` | permanent accounts, start date, deterministic opening key, operational-activity block |
 | `ClosingService` | temporary close into retained earnings, end date, deterministic closing key |
 | `DocumentService` | balance, postable accounts, numbering, idempotency, `create()` → `post()` |
+| `ReversalService` | same-FY operational full-document reversal; does not post into a closed year |
 | `Document::void()` | POSTED → VOIDED; void does **not** require an “open period” |
 
 Opening and closing documents still pass through `DocumentService`, so they cannot bypass FY/date control. Their extra rules stay on those services.
@@ -309,6 +310,7 @@ FY-scoped full-year reports treat the closing journal on `end_date` as **period*
 - If **no other posted** `type=opening` document remains in that year, `FiscalYearService::revertOpening()` runs and `opening_done` becomes false.
 - If another posted opening remains (typical multi-branch carry-forward), `opening_done` stays true.
 - After the last posted opening is voided, `OpeningService::post()` / `carryForward()` may reuse `opening:{fyId}:branch:{id|none}`.
+- A posted document **cannot** be voided while a posted reversal points at it.
 
 **Closed fiscal year**
 
@@ -318,8 +320,44 @@ FY-scoped full-year reports treat the closing journal on `end_date` as **period*
 
 **Operational documents**
 
-- Void does not clear `idempotency_key`.
+- Void does not clear `idempotency_key` (except `type=reversal`).
 - Void does not change `opening_done`.
+
+**Reversal documents**
+
+- Voiding a posted `type=reversal` document clears `idempotency_key` in the same write so `reversal:{originalId}` can be reused.
+- The `reversed_document_id` FK is kept.
+
+---
+
+## Operational reversal (`ReversalService`)
+
+`Accounting::reversal()->reverse($document, $options = [])` posts a new `type=reversal` journal that inverts the original’s persisted items. `Document::reverse($reason = null)` delegates to the same service.
+
+**VOID ≠ REVERSAL**
+
+| | Void | Reversal |
+|---|---|---|
+| Original | `posted` → `voided` | stays `posted` |
+| Ledger | disappears (posted-only) | original + opposite journal |
+| New document | no | yes, new number |
+
+A void is not historical correction. A reversal does not hide the original.
+
+Rules:
+
+- Same fiscal year only. Default date = original date. Optional `date` must stay inside that FY and pass `PostingService`.
+- Original FY must be **active**. Closed → `ClosedFiscalYearException`. Draft → `FiscalYearStateException`.
+- Closed-FY / cross-FY / prior-period adjustment is **not** implemented.
+- Full document only. Source is persisted `document_items` (`amount` unchanged, `sign` flipped). Not `cached_balance`, `BalanceService`, or ledger totals.
+- Operational documents only. `type=opening` and `type=closing` are refused.
+- If any posted `type=closing` exists in the original FY, reverse is refused. Operator sequence: void closing → reverse → `closeProfitAndLoss()`.
+- `branch_id` is copied, including `NULL`. No FY/branch override.
+- `R1.reversed_document_id = J1.id`. `R1.idempotency_key = reversal:{J1.id}`. Repeat returns the same posted R1.
+- Reversal-of-reversal is allowed (`J1 → R1 → R2`). Each document has at most one posted reversal.
+- After R1 is voided, a new reversal of J1 may be created.
+- J1 cannot be voided while R1 is posted.
+- Does not call `FiscalYearService::close()`, `completeOpening()`, or `revertOpening()`.
 
 ---
 
@@ -330,3 +368,6 @@ These belong to later phases and are **not** provided here:
 - automatic next-year generation
 - Balance Sheet
 - customer/supplier subledgers
+- closed-FY / prior-period correction
+- partial reversal
+- opening or closing reversal

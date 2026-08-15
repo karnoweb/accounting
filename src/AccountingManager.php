@@ -17,6 +17,7 @@ use Karnoweb\Accounting\Services\ClosingService;
 use Karnoweb\Accounting\Services\OpeningService;
 use Karnoweb\Accounting\Services\PostingService;
 use Karnoweb\Accounting\Services\ReportService;
+use Karnoweb\Accounting\Services\ReversalService;
 
 /**
  * Central manager for accounting services and context.
@@ -33,7 +34,8 @@ class AccountingManager
         protected FiscalYearService $fiscalYearService,
         protected OpeningService $openingService,
         protected ClosingService $closingService,
-        protected PostingService $postingService
+        protected PostingService $postingService,
+        protected ReversalService $reversalService
     ) {}
 
     /**
@@ -84,6 +86,12 @@ class AccountingManager
     public function posting(): PostingService
     {
         return $this->postingService;
+    }
+
+    /** Same-FY operational reversal (type=reversal). */
+    public function reversal(): ReversalService
+    {
+        return $this->reversalService;
     }
 
     /** Get the currently active fiscal year, or null if none. */

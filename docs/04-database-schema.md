@@ -45,6 +45,7 @@
 | accounts | accounts | Self-referential | parent_id |
 | accounts | (شعبه اختیاری) | Many to One | branch_id |
 | documents | fiscal_years | Many to One | fiscal_year_id |
+| documents | documents | Self (reversal → original) | reversed_document_id |
 | documents | (شعبه اختیاری) | Many to One | branch_id |
 | document_items | documents | Many to One | document_id |
 | document_items | accounts | Many to One | account_id |
@@ -264,6 +265,7 @@
 | notes | text | ✅ | null | یادداشت‌ها |
 | source_type | varchar(50) | ✅ | null | نوع منبع |
 | source_id | bigint unsigned | ✅ | null | شناسه منبع |
+| reversed_document_id | bigint unsigned | ✅ | null | سند برگشت‌شده (روی سند reversal) |
 | posted_at | timestamp | ✅ | null | زمان ثبت قطعی |
 | created_by | bigint unsigned | ✅ | null | ایجادکننده |
 | approved_by | bigint unsigned | ✅ | null | تأییدکننده |
@@ -295,6 +297,7 @@
 | opening | افتتاحیه |
 | closing | اختتامیه |
 | adjustment | تعدیل |
+| reversal | برگشت عملیاتی |
 
 ### ۶.۵ ایندکس‌ها
 
@@ -308,6 +311,7 @@
 | documents_type_index | type | Index | فیلتر نوع |
 | documents_status_index | status | Index | فیلتر وضعیت |
 | documents_source_index | source_type, source_id | Index | جستجوی منبع |
+| acc_documents_reversed_document_id_index | reversed_document_id | Index | سند برگشت‌شده (یکتا نیست) |
 | documents_status_fy_date_index | status, fiscal_year_id, date | Index | گزارش‌های محدود به یک سال مالی (از 13.2.0) |
 | documents_status_date_index | status, date | Index | گزارش‌های با بازهٔ تاریخ آزاد (از 13.2.0) |
 | documents_branch_status_date_index | branch_id, status, date | Index | گزارش‌های فیلترشده بر اساس شعبه (از 13.2.0) |
@@ -318,6 +322,7 @@
 |-----|-----|-----|
 | documents_fiscal_year_id_foreign | Foreign Key | ON DELETE RESTRICT |
 | documents_branch_id_foreign | Foreign Key | ON DELETE SET NULL |
+| acc_documents_reversed_document_id_foreign | Foreign Key | ON DELETE RESTRICT — سند reversal به اصل |
 
 ### ۶.۷ نمونه داده
 

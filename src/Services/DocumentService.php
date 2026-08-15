@@ -70,6 +70,7 @@ class DocumentService
                         'source_type' => $data['source_type'] ?? null,
                         'source_id' => $data['source_id'] ?? null,
                         'idempotency_key' => $data['idempotency_key'] ?? null,
+                        'reversed_document_id' => $data['reversed_document_id'] ?? null,
                         'created_by' => $this->currentUserId(),
                         'meta' => $data['meta'] ?? null,
                     ]);

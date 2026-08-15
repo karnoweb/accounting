@@ -16,6 +16,7 @@ use Karnoweb\Accounting\Services\ClosingService;
 use Karnoweb\Accounting\Services\OpeningService;
 use Karnoweb\Accounting\Services\PostingService;
 use Karnoweb\Accounting\Services\ReportService;
+use Karnoweb\Accounting\Services\ReversalService;
 
 class AccountingServiceProvider extends ServiceProvider
 {
@@ -70,6 +71,12 @@ class AccountingServiceProvider extends ServiceProvider
             );
         });
 
+        $this->app->singleton(ReversalService::class, function ($app) {
+            return new ReversalService(
+                $app->make(DocumentService::class)
+            );
+        });
+
         $this->app->singleton('accounting', function ($app) {
             return new AccountingManager(
                 $app->make(DocumentService::class),
@@ -79,7 +86,8 @@ class AccountingServiceProvider extends ServiceProvider
                 $app->make(FiscalYearService::class),
                 $app->make(OpeningService::class),
                 $app->make(ClosingService::class),
-                $app->make(PostingService::class)
+                $app->make(PostingService::class),
+                $app->make(ReversalService::class)
             );
         });
 

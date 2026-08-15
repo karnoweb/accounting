@@ -141,6 +141,16 @@ app(DocumentService::class)->post($document);
 $document->void('دلیل ابطال');
 ```
 
+**ابطال ≠ برگشت.** ابطال سند را از دفتر ثبت‌شده خارج می‌کند. برگشت سند اصلی را `posted` نگه می‌دارد و یک سند `type=reversal` با اثر معکوس می‌سازد (همان سال مالی فعال، کل سند، نه افتتاحیه/اختتامیه، نه سال بسته).
+
+```php
+$r1 = $document->reverse('ثبت تکراری');
+$r1 = Accounting::reversal()->reverse($document, [
+    'reason' => 'ثبت تکراری',
+    'date' => '2025-06-01', // اختیاری؛ باید داخل همان سال مالی باشد
+]);
+```
+
 ---
 
 ## حساب‌های سیستمی
@@ -294,6 +304,7 @@ Accounting::posting()->assertAllowed('2025-05-01', $fy, 'sale', $branchId);
 - `opening_done` فقط با `completeOpening()` / `revertOpening()` عوض می‌شود؛ `activate()` آن را false می‌گذارد و `close()` مقدار موجود را حفظ می‌کند.
 - کنترل ثبت: `Accounting::posting()->assertAllowed($date, $fy, $type, $branchId)` — سال فعال + تاریخ داخل بازه. جدول دورهٔ ماهانه وجود ندارد.
 - افتتاحیه / انتقال مانده / بستن سود و زیان روی `Accounting::opening()` و `Accounting::closing()` هستند؛ `FiscalYearService::close()` سند نمی‌سازد.
+- برگشت عملیاتی: `Accounting::reversal()->reverse($document)` — فقط همان سال فعال؛ اصلاح سال بسته پیاده‌سازی نشده است.
 - پس از close، تراز آزمایشی / دفتر کل / دفتر معین همان دفتر ثبت‌شده را برمی‌گردانند.
 
 مستند کامل: [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md).

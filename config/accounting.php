@@ -51,7 +51,7 @@ return [
 
     'document' => [
         'min_items' => 2,
-        'allowed_types' => ['sale', 'purchase', 'receipt', 'payment', 'transfer', 'opening', 'closing', 'adjustment'],
+        'allowed_types' => ['sale', 'purchase', 'receipt', 'payment', 'transfer', 'opening', 'closing', 'adjustment', 'reversal'],
         'workflow_enabled' => false,
         // Bounded retries when auto-number collides with unique(fiscal_year_id, number).
         'number_allocation_retries' => 5,
