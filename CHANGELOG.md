@@ -1,24 +1,26 @@
 # Changelog
 
-## [13.4.0] - Unreleased
+## [13.4.0] - 2026-08-15
 
 ### Added
 
-- **Operational reversal (E8)** — `ReversalService` / `Accounting::reversal()->reverse($document, $options = [])` and `Document::reverse($reason = null)`:
-  - Posts a new `type=reversal` journal in the **same active fiscal year**. Original stays `posted` and is not mutated.
+- **Operational document reversal (E8)** — `ReversalService` / `Accounting::reversal()->reverse($document, $options = [])` and `Document::reverse($reason = null)`:
+  - Same-fiscal-year reversal only: posts a new `type=reversal` journal in the original document's **active** FY. Original stays `posted` and is not mutated.
   - Full-document inverse from persisted `document_items` (`amount` unchanged, `sign` flipped). Not `cached_balance` / `BalanceService` / ledger totals.
-  - `reversed_document_id` on the new row (nullable FK, indexed, not unique). Idempotency key `reversal:{originalId}`.
-  - Reversal-of-reversal allowed. At most one posted reversal per document.
+  - `reversed_document_id` relation on the new row (nullable FK, indexed, not unique) plus `Document::reversedDocument()` / `reversals()` / `postedReversal()`.
+  - Reversal idempotency via deterministic key `reversal:{originalId}`; at most one posted reversal per document.
+  - Reversal-of-reversal allowed (`J1 → R1 → R2`).
+  - Reversal/void interaction: lock FY then document; cannot void a document that has a posted reversal; voiding a `type=reversal` row releases `idempotency_key` (same write as opening/closing).
+  - Posting-control integration: reversal create/post goes through `PostingService`; closed FY → `ClosedFiscalYearException`.
   - Opening/closing documents refused. Posted closing in the FY blocks operational reverse (void closing first, then reverse, then re-close).
-  - Closed FY → `ClosedFiscalYearException`. Cross-FY / prior-period correction is not implemented.
-- Void guards: lock FY then document; cannot void a document that has a posted reversal; `type=reversal` releases `idempotency_key` on void (same write as opening/closing).
 - Exception: `DocumentNotReversibleException`.
 - Migration `2024_01_01_000010_add_document_reversal.php`.
+- Test coverage: `ReversalServiceTest` (same-FY reverse, inverse lines, idempotency, reversal-of-reversal, void interaction, posting-control / closed-FY, opening/closing refusal).
 
 ### Notes
 
 - **VOID ≠ REVERSAL.** Void hides the original from the posted ledger. Reversal keeps both journals.
-- Version remains **13.3.0** until release approval.
+- This release does **not** implement: cross-FY reversal, closed-FY correction, prior-period adjustment, RE correction, partial reversal, opening reversal, closing reversal, or FY reopening.
 
 ## [13.3.0] - 2026-08-15
 
