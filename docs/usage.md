@@ -283,13 +283,17 @@ $fy = Accounting::fiscalYear()->close($fy);
 
 $fy = Accounting::currentFiscalYear(); // active + current only; never closed
 $fy = Accounting::fiscalYear()->findByDate('2025-05-01');
+
+Accounting::posting()->assertAllowed('2025-05-01', $fy, 'sale', $branchId);
 ```
 
 قوانین کوتاه:
 
 - در هر لحظه حداکثر یک سال `active` (و همان `is_current`).
 - پیش‌نویس قابل ویرایش تاریخ است؛ سال فعال فقط عنوان؛ سال بسته هیچ ویرایشی ندارد.
-- `opening_done` با activate/close تغییر نمی‌کند (افتتاحیه هنوز پیاده نشده).
+- `opening_done` فقط با `completeOpening()` / `revertOpening()` عوض می‌شود؛ `activate()` آن را false می‌گذارد و `close()` مقدار موجود را حفظ می‌کند.
+- کنترل ثبت: `Accounting::posting()->assertAllowed($date, $fy, $type, $branchId)` — سال فعال + تاریخ داخل بازه. جدول دورهٔ ماهانه وجود ندارد.
+- افتتاحیه / انتقال مانده / بستن سود و زیان روی `Accounting::opening()` و `Accounting::closing()` هستند؛ `FiscalYearService::close()` سند نمی‌سازد.
 - پس از close، تراز آزمایشی / دفتر کل / دفتر معین همان دفتر ثبت‌شده را برمی‌گردانند.
 
 مستند کامل: [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md).

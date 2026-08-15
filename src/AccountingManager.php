@@ -15,6 +15,7 @@ use Karnoweb\Accounting\Services\DocumentService;
 use Karnoweb\Accounting\Services\FiscalYearService;
 use Karnoweb\Accounting\Services\ClosingService;
 use Karnoweb\Accounting\Services\OpeningService;
+use Karnoweb\Accounting\Services\PostingService;
 use Karnoweb\Accounting\Services\ReportService;
 
 /**
@@ -31,7 +32,8 @@ class AccountingManager
         protected ReportService $reportService,
         protected FiscalYearService $fiscalYearService,
         protected OpeningService $openingService,
-        protected ClosingService $closingService
+        protected ClosingService $closingService,
+        protected PostingService $postingService
     ) {}
 
     /**
@@ -76,6 +78,12 @@ class AccountingManager
     public function closing(): ClosingService
     {
         return $this->closingService;
+    }
+
+    /** Canonical posting authorization (FY + date). ERP adapters ask here before create/post. */
+    public function posting(): PostingService
+    {
+        return $this->postingService;
     }
 
     /** Get the currently active fiscal year, or null if none. */

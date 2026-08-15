@@ -1,24 +1,32 @@
 # Changelog
 
-## [13.3.0] - 2026-08-14
+## [13.3.0] - 2026-08-15
 
 ### Added
 
-- **Fiscal Year lifecycle** — `FiscalYearService` is now the canonical API for configuration and state transitions:
+- **Fiscal Year lifecycle (E1–E7)** — `FiscalYearService` is the canonical API for configuration and state transitions:
   - `create()` — draft only; required title; normalized dates; `start_date <= end_date`; overlapping and exact-duplicate ranges rejected; lifecycle fields (`status`, `is_current`, `opening_done`, `opened_at`, `closed_at`) cannot be set on create.
   - `update()` — draft years may change title and dates (overlap re-checked); active years may change title only; closed years are not editable.
   - `activate()` — `draft → active`, records `opened_at`, sets the sole `is_current` row, refuses a second active year. Does **not** create opening journal entries; `opening_done` stays false.
   - `validateCanClose()` / `close()` — transactional `active → closed`; requires no draft/pending/approved documents; sets `closed_at` and clears `is_current`. Does **not** create closing entries, next-year rows, or mutate posted ledger history.
-  - `assertAcceptsPosting()` — single posting gate used by `DocumentService` (draft rejected, active allowed, closed → `ClosedFiscalYearException`).
+  - `assertAcceptsPosting()` — fiscal-year + date primitive used by `PostingService` (draft rejected, active allowed, closed → `ClosedFiscalYearException`).
+- **Reusable posting control** — `PostingService` / `Accounting::posting()->assertAllowed($date, $fy, $type, $branchId)` is the canonical ERP posting gate. `DocumentService::create()` / `post()` call it. No `AccountingPeriod` table; FY remains the only persisted period. `type` and `branch_id` are part of the stable call shape and do not change the decision.
+- **Manual opening & carry-forward** — `OpeningService` / `Accounting::opening()`:
+  - `post()` — one `type=opening` journal on FY `start_date` for permanent accounts; deterministic key `opening:{fyId}:branch:{id|none}`.
+  - `carryForward()` — copies posted permanent balances from a closed source year into the immediately following active target. The caller creates the next year.
+  - `completeOpening()` / `revertOpening()` own `opening_done`.
+- **P&L close & retained earnings** — `ClosingService` / `Accounting::closing()->closeProfitAndLoss()` zeros temporary accounts into the configured retained-earnings equity account (`accounting.account.system_accounts.retained_earnings`, seeded default `310101`). Deterministic key `closing:{fyId}:branch:{id|none}`. Does not call `FiscalYearService::close()`, does not set `closing_done`, and does not create the next year.
+- **Opening/closing void + key reuse** — voiding a posted opening or closing clears `idempotency_key` in the same `POSTED → VOIDED` write so the deterministic key can be reused. Operational voids keep their key.
 - Exceptions: `InvalidFiscalYearException`, `FiscalYearStateException`.
 - `FiscalYear::activate()` / `FiscalYear::close()` delegate to the service (same rules; they cannot bypass validation).
 - Lookup: `current()` never returns draft or closed; `findByDate()` returns the unique containing year (including closed, for history) and throws on ambiguous overlap.
-- Focused tests in `tests/FiscalYearLifecycleTest.php` (create/edit/activate/close/posting/lookup/reporting-after-close).
+- Focused tests: `FiscalYearLifecycleTest`, `FiscalYearOpeningLifecycleTest`, `OpeningServiceTest`, `OpeningCarryForwardTest`, `OpeningVoidLifecycleTest`, `ClosingServiceTest`, `PostingControlTest`.
 
 ### Notes
 
 - Closed fiscal years remain fully readable in Trial Balance, General Ledger, and Account Statement.
-- Closed years **cannot be reopened** (no `reopen()` method). Opening balances, closing journals, carry-forward, and next-year generation are **not** implemented.
+- Closed years **cannot be reopened** (no `reopen()` method). Next-year generation is **not** implemented.
+- No `AccountingPeriod`, monthly/quarterly locks, Balance Sheet, or subledgers.
 - No new migration. Overlap of non-exact ranges and single-current-FY are enforced in the service (portable DB constraints are not available for those invariants). See [docs/fiscal-year-lifecycle.md](docs/fiscal-year-lifecycle.md).
 - Minor release: additive service API; existing reporting and posting invariants are unchanged. `create()` no longer accepts `status` / `is_current` — use `activate()`.
 

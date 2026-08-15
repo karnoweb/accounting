@@ -14,6 +14,7 @@ use Karnoweb\Accounting\Services\DocumentService;
 use Karnoweb\Accounting\Services\FiscalYearService;
 use Karnoweb\Accounting\Services\ClosingService;
 use Karnoweb\Accounting\Services\OpeningService;
+use Karnoweb\Accounting\Services\PostingService;
 use Karnoweb\Accounting\Services\ReportService;
 
 class AccountingServiceProvider extends ServiceProvider
@@ -28,12 +29,13 @@ class AccountingServiceProvider extends ServiceProvider
         $this->app->singleton(AccountService::class);
         $this->app->singleton(BalanceService::class);
         $this->app->singleton(FiscalYearService::class);
+        $this->app->singleton(PostingService::class);
 
         $this->app->singleton(DocumentService::class, function ($app) {
             return new DocumentService(
                 $app->make(BalanceService::class),
                 $app->make(AccountService::class),
-                $app->make(FiscalYearService::class)
+                $app->make(PostingService::class)
             );
         });
 
@@ -76,7 +78,8 @@ class AccountingServiceProvider extends ServiceProvider
                 $app->make(ReportService::class),
                 $app->make(FiscalYearService::class),
                 $app->make(OpeningService::class),
-                $app->make(ClosingService::class)
+                $app->make(ClosingService::class),
+                $app->make(PostingService::class)
             );
         });
 

@@ -77,16 +77,67 @@ If more than one row matches, it throws `FiscalYearOverlapException` instead of 
 
 ---
 
-## Posting
+## Posting control
 
-`DocumentService` does not duplicate lifecycle rules. It calls `FiscalYearService::assertAcceptsPosting()`:
+The reusable ERP question is: **can this document be posted on this date, for this fiscal year?**
 
-- draft → `FiscalYearStateException`
-- active + date in range → allowed
-- active + date out of range → `RuntimeException` (existing date-range error)
-- closed → `ClosedFiscalYearException`
+`Accounting::posting()->assertAllowed($date, $fiscalYear = null, $type = null, $branchId = null)` is the canonical gate.
 
-`Document::post()` still delegates to `DocumentService::post()`.
+`DocumentService::create()` / `post()` call that gate. `Document::post()` still delegates to `DocumentService::post()`.
+
+`FiscalYearService::assertAcceptsPosting($fy, $date)` remains the **fiscal-year + date primitive**. It is not the ERP-facing API. `PostingService` resolves the year, then delegates there.
+
+| Input | Result |
+|-------|--------|
+| active FY + date on `start_date` / inside / `end_date` | allowed |
+| date before `start_date` or after `end_date` | `RuntimeException` (`date_out_of_fiscal_year`) |
+| draft FY | `FiscalYearStateException` (`fiscal_year_not_active`) |
+| closed FY | `ClosedFiscalYearException` (`fiscal_year_closed`) |
+| no FY contains the date (FY omitted) | `FiscalYearStateException` (`no_fiscal_year_for_date`) |
+| more than one FY contains the date | `FiscalYearOverlapException` (`fiscal_year_ambiguous`) |
+| empty / malformed date | `InvalidArgumentException` (`date_required`) |
+
+`findByDate()` is reused when the year is omitted. The gate does **not** fall back to `FiscalYear::current()` — that would hide a missing or ambiguous match.
+
+Historical and future dates inside an **active** year are allowed. There is no “today” cutoff.
+
+`type` and `branch_id` are part of the stable call shape. They do **not** change the decision today. `NULL` branch is a real bucket and is never merged with `config('accounting.branch.default_id')`.
+
+### What stays outside the generic gate
+
+| Owner | Still owns |
+|-------|------------|
+| `FiscalYearService` | draft → active → closed; `close()` is journal-free |
+| `OpeningService` | permanent accounts, start date, deterministic opening key, operational-activity block |
+| `ClosingService` | temporary close into retained earnings, end date, deterministic closing key |
+| `DocumentService` | balance, postable accounts, numbering, idempotency, `create()` → `post()` |
+| `Document::void()` | POSTED → VOIDED; void does **not** require an “open period” |
+
+Opening and closing documents still pass through `DocumentService`, so they cannot bypass FY/date control. Their extra rules stay on those services.
+
+### AccountingPeriod
+
+**Intentionally not introduced.** The fiscal year is the only persisted posting period. Monthly / quarterly / tax / audit locks are not in the current contract. A period table would be premature until a real lock smaller than a fiscal year is required.
+
+Void, reporting, and ledger arithmetic are unchanged. Period controls do not filter `LedgerQuery`.
+
+### How ERP packages should post
+
+```php
+Accounting::posting()->assertAllowed($date, $fy, 'sale', $branchId);
+
+$document = Accounting::document()
+    ->type('sale')
+    ->date($date)
+    ->fiscalYear($fy)
+    ->debit($debit, $amount)
+    ->credit($credit, $amount)
+    ->save();
+
+$document->post();
+```
+
+The adapter must not copy fiscal-year SQL, status checks, or date-range rules. Accounting remains the source of truth.
 
 ---
 

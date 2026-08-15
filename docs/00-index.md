@@ -47,7 +47,7 @@
 |---|------|-------|-----|
 | 08 | [api-reference.md](08-api-reference.md) | مرجع API | متدها و سرویس‌ها |
 | 09 | [reports.md](09-reports.md) | گزارش‌ها | انواع گزارش‌های حسابداری |
-| 09b | [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md) | چرخه سال مالی | create / activate / close (۱۳.۳) |
+| 09b | [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md) | چرخه سال مالی | create / activate / close / posting control (۱۳.۳) |
 | 10 | [multi-branch.md](10-multi-branch.md) | شعبه (branch_id) | استفاده از branch_id و تنظیمات شعبه |
 | 11 | [multi-language.md](11-multi-language.md) | چندزبانگی | ترجمه و زبان‌ها |
 | 12 | [security.md](12-security.md) | امنیت | دسترسی‌ها و Audit |

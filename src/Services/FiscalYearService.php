@@ -327,7 +327,9 @@ class FiscalYearService
     }
 
     /**
-     * Canonical posting gate used by DocumentService. Closed years stay readable; they cannot receive documents.
+     * Fiscal-year + date primitive used by PostingService.
+     * ERP adapters should call PostingService::assertAllowed(), not this method.
+     * Closed years stay readable; they cannot receive documents.
      */
     public function assertAcceptsPosting(FiscalYear $fiscalYear, string $date): void
     {

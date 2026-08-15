@@ -24,7 +24,7 @@ class DocumentService
     public function __construct(
         private BalanceService $balanceService,
         private AccountService $accountService,
-        private FiscalYearService $fiscalYearService
+        private PostingService $postingService
     ) {}
 
     public function create(array $data): Document
@@ -39,7 +39,14 @@ class DocumentService
             try {
                 return DB::transaction(function () use ($data, $manualNumber) {
                     $fiscalYear = $this->resolveFiscalYear($data);
-                    $this->validateFiscalYear($fiscalYear, $data['date']);
+                    $this->validateFiscalYear(
+                        $fiscalYear,
+                        $data['date'],
+                        isset($data['type']) ? (string) $data['type'] : null,
+                        array_key_exists('branch_id', $data)
+                            ? ($data['branch_id'] !== null ? (int) $data['branch_id'] : null)
+                            : null
+                    );
                     $this->validateItems($data['items'] ?? []);
                     $this->assertIdempotencyKeyAvailable($data['idempotency_key'] ?? null);
 
@@ -117,7 +124,12 @@ class DocumentService
             );
         }
 
-        $this->validateFiscalYear($document->fiscalYear, $document->date->format('Y-m-d'));
+        $this->validateFiscalYear(
+            $document->fiscalYear,
+            $document->date->format('Y-m-d'),
+            $document->type,
+            $document->branch_id
+        );
 
         foreach ($document->items as $item) {
             $account = $item->account ?? Account::find($item->account_id);
@@ -278,9 +290,13 @@ class DocumentService
         throw new RuntimeException(__('accounting::accounting.messages.no_active_fiscal_year'));
     }
 
-    private function validateFiscalYear(FiscalYear $fiscalYear, string $date): void
-    {
-        $this->fiscalYearService->assertAcceptsPosting($fiscalYear, $date);
+    private function validateFiscalYear(
+        FiscalYear $fiscalYear,
+        string|\DateTimeInterface $date,
+        ?string $type = null,
+        ?int $branchId = null
+    ): void {
+        $this->postingService->assertAllowed($date, $fiscalYear, $type, $branchId);
     }
 
     private function getDefaultBranchId(): ?int

@@ -95,6 +95,7 @@ return [
         'fiscal_year_another_active' => 'Another fiscal year is already active. Close it before activating a new one.',
         'fiscal_year_cannot_reopen' => 'Closed fiscal years cannot be reopened.',
         'no_active_fiscal_year' => 'No active fiscal year.',
+        'no_fiscal_year_for_date' => 'No fiscal year contains this date.',
         'abnormal_balance' => 'Abnormal balance for account :account.',
     ],
 

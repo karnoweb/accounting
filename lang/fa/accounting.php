@@ -95,6 +95,7 @@ return [
         'fiscal_year_another_active' => 'سال مالی فعال دیگری وجود دارد. ابتدا آن را ببندید.',
         'fiscal_year_cannot_reopen' => 'سال مالی بسته قابل بازگشایی نیست.',
         'no_active_fiscal_year' => 'سال مالی فعالی وجود ندارد.',
+        'no_fiscal_year_for_date' => 'سال مالی‌ای این تاریخ را پوشش نمی‌دهد.',
         'abnormal_balance' => 'مانده غیرطبیعی برای حساب :account.',
     ],
 
