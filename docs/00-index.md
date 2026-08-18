@@ -1,242 +1,118 @@
-# مستندات پکیج حسابداری Laravel
-
-## Accounting Package Documentation
-
----
-
-## اطلاعات پکیج
-
-| مشخصه | مقدار |
-|-------|-------|
-| نام پکیج | `your-vendor/laravel-accounting` |
-| نسخه | 1.0.0 |
-| حداقل نسخه PHP | 8.2 |
-| حداقل نسخه Laravel | ^11.0 \| ^12.0 |
-| لایسنس | MIT |
-| آخرین بروزرسانی | خرداد ۱۴۰۴ |
-
----
-
-## فهرست مستندات
-
-### بخش اول: آشنایی
-
-| # | فایل | عنوان | شرح |
-|---|------|-------|-----|
-| 01 | [overview.md](01-overview.md) | معرفی کلی | هدف، فلسفه طراحی، محدوده پکیج |
-| 02 | [concepts.md](02-concepts.md) | مفاهیم حسابداری | حساب، سند، سال مالی، مرکز هزینه |
-| 03 | [architecture.md](03-architecture.md) | معماری فنی | ساختار، لایه‌ها، Design Patterns |
-
-### بخش دوم: دیتابیس
-
-| # | فایل | عنوان | شرح |
-|---|------|-------|-----|
-| 04 | [database-schema.md](04-database-schema.md) | ساختار دیتابیس | جداول، روابط، ERD |
-
-### بخش سوم: راه‌اندازی
-
-| # | فایل | عنوان | شرح |
-|---|------|-------|-----|
-| 05 | [installation.md](05-installation.md) | نصب | نصب، Migration، Seeder |
-| 06 | [configuration.md](06-configuration.md) | پیکربندی | تنظیمات و سفارشی‌سازی |
-| 07 | [integration.md](07-integration.md) | یکپارچه‌سازی | اتصال به پروژه |
-
-### بخش چهارم: استفاده
-
-| # | فایل | عنوان | شرح |
-|---|------|-------|-----|
-| 08 | [api-reference.md](08-api-reference.md) | مرجع API | متدها و سرویس‌ها |
-| 09 | [reports.md](09-reports.md) | گزارش‌ها | انواع گزارش‌های حسابداری |
-| 09b | [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md) | چرخه سال مالی | create / activate / close / posting control (۱۳.۳) |
-| 10 | [multi-branch.md](10-multi-branch.md) | شعبه (branch_id) | استفاده از branch_id و تنظیمات شعبه |
-| 11 | [multi-language.md](11-multi-language.md) | چندزبانگی | ترجمه و زبان‌ها |
-| 12 | [security.md](12-security.md) | امنیت | دسترسی‌ها و Audit |
-| 13 | [examples.md](13-examples.md) | مثال‌ها | سناریوهای کاربردی |
-
-### بخش پنجم: پیاده‌سازی
-
-| # | فایل | عنوان | شرح |
-|---|------|-------|-----|
-| 14a | [implementation/models.md](14-implementation/14a-models.md) | Models | کد مدل‌ها |
-| 14b | [implementation/migrations.md](14-implementation/14b-migrations.md) | Migrations | کد Migration ها |
-| 14c | [implementation/services.md](14-implementation/14c-services.md) | Services | کد سرویس‌ها |
-| 14d | [implementation/traits.md](14-implementation/14d-traits.md) | Traits | کد Trait ها |
-| 14e | [implementation/enums.md](14-implementation/14e-enums.md) | Enums | کد Enum ها |
-| 14f | [implementation/events-observers.md](14-implementation/14f-events-observers.md) | Events & Observers | کد رویدادها |
-
-### بخش ششم: ضمائم
-
-| # | فایل | عنوان | شرح |
-|---|------|-------|-----|
-| 15 | [appendix.md](15-appendix.md) | ضمائم | واژه‌نامه، FAQ، Changelog |
-
----
-
-## نقشه کلی سیستم
-
-### لایه پروژه (مصرف‌کننده)
-
-پروژه شما شامل موجودیت‌هایی مثل User، Product، Bank و Cashier است. هر کدام از این موجودیت‌ها با استفاده از `HasAccount` Trait به یک حساب در سیستم حسابداری متصل می‌شوند.
-
-### لایه پکیج حسابداری
-
-پکیج از سه بخش اصلی تشکیل شده:
-
-**سرویس‌ها:** AccountService، DocumentService، ReportService و سایر سرویس‌ها که منطق تجاری را پیاده‌سازی می‌کنند.
-
-**مدل‌ها:** Account، Document، FiscalYear، CostCenter، DocumentLog و در صورت تنظیم مدل شعبه در config، Branch (اختیاری).
-
-**دیتابیس:** پکیج فقط جداول fiscal_years، accounts، cost_centers، documents، document_items و document_logs را ایجاد می‌کند. برای شعبه فقط فیلد **branch_id** در accounts و documents استفاده می‌شود؛ جدول/مدل Branch در اختیار اپلیکیشن است.
-
----
-
-## مسیر یادگیری پیشنهادی
-
-### برای تصمیم‌گیران و مدیران پروژه
-
-| مرحله | فایل | هدف |
-|-------|------|-----|
-| ۱ | 01-overview.md | آشنایی با هدف و فلسفه پکیج |
-| ۲ | 02-concepts.md | درک مفاهیم حسابداری |
-| ۳ | 13-examples.md | دیدن مثال‌های کاربردی |
-
-### برای توسعه‌دهندگان
-
-| مرحله | فایل | هدف |
-|-------|------|-----|
-| ۱ | 01-overview.md | آشنایی کلی |
-| ۲ | 02-concepts.md | درک مفاهیم |
-| ۳ | 03-architecture.md | درک معماری |
-| ۴ | 04-database-schema.md | شناخت جداول |
-| ۵ | 05-installation.md | نصب پکیج |
-| ۶ | 06-configuration.md | پیکربندی |
-| ۷ | 07-integration.md | یکپارچه‌سازی |
-| ۸ | 08-api-reference.md | استفاده از API |
-| ۹ | 14-implementation | مطالعه کد |
-
-### برای حسابداران و کاربران نهایی
-
-| مرحله | فایل | هدف |
-|-------|------|-----|
-| ۱ | 01-overview.md | آشنایی کلی |
-| ۲ | 02-concepts.md | درک مفاهیم حسابداری |
-| ۳ | 09-reports.md | آشنایی با گزارش‌ها |
-| ۴ | 13-examples.md | مثال‌های کاربردی |
-
----
-
-## پیش‌نیازها
-
-### پیش‌نیازهای سیستم
-
-| مورد | حداقل نسخه |
-|------|------------|
-| PHP | 8.2 |
-| Laravel | ^11.0 \| ^12.0 |
-| MySQL | 8.0 |
-| PostgreSQL | 13 (جایگزین) |
-
-### پیش‌نیازهای دانشی
-
-| سطح | مفاهیم |
-|-----|--------|
-| ضروری | Laravel (Models, Migrations, Services) |
-| ضروری | مفاهیم پایه حسابداری (بدهکار/بستانکار) |
-| مفید | Design Patterns (Repository, Service) |
-| مفید | آشنایی با استانداردهای حسابداری ایران |
-
----
-
-## ساختار پوشه‌های پکیج
-
-### پوشه اصلی src
-
-| پوشه | محتویات |
-|------|---------|
-| Models | Account، Document، DocumentItem، FiscalYear، Branch، CostCenter، DocumentLog |
-| Services | AccountService، DocumentService، BalanceService، ReportService، FiscalYearService |
-| Traits | HasAccount |
-| Enums | AccountType، AccountNature، DocumentStatus، FiscalYearStatus |
-| Events | DocumentCreated، DocumentPosted، DocumentVoided |
-| Observers | DocumentObserver |
-| Exceptions | UnbalancedDocumentException، ClosedFiscalYearException، InactiveAccountException |
-| Facades | Accounting |
-
-### پوشه config
-
-| فایل | شرح |
-|------|-----|
-| accounting.php | تنظیمات اصلی پکیج |
-
-### پوشه database
-
-| پوشه | محتویات |
-|------|---------|
-| migrations | Migration های جداول |
-| seeders | DefaultAccountsSeeder |
-
-### پوشه lang
-
-| پوشه | محتویات |
-|------|---------|
-| en | فایل‌های زبان انگلیسی |
-| fa | فایل‌های زبان فارسی |
-
----
-
-## قراردادهای نام‌گذاری
-
-### در کد
-
-| نوع | قرارداد | مثال |
-|-----|---------|------|
-| Model | PascalCase، مفرد | `Account`, `Document` |
-| Table | snake_case، جمع | `accounts`, `documents` |
-| Migration | snake_case با تاریخ | `2024_01_01_000001_create_accounts_table` |
-| Service | PascalCase + Service | `AccountService` |
-| Trait | PascalCase + Has/Is/Can | `HasAccount` |
-| Enum | PascalCase | `AccountType` |
-| Event | PascalCase + Past Tense | `DocumentCreated` |
-| Config Key | snake_case | `default_fiscal_year` |
-
-### در مستندات
-
-| علامت | معنی |
-|-------|------|
-| ✅ | پشتیبانی می‌شود |
-| ❌ | پشتیبانی نمی‌شود |
-| ⚠️ | نیاز به توجه خاص |
-| 💡 | نکته مهم |
-| 📌 | یادآوری |
-
----
-
-## نسخه‌های مستندات
-
-| نسخه | تاریخ | تغییرات |
-|------|-------|---------|
-| 1.0.0 | خرداد ۱۴۰۴ | انتشار اولیه |
-
----
-
-## پشتیبانی و ارتباط
-
-| مورد | آدرس |
-|------|------|
-| گزارش باگ | GitHub Issues |
-| درخواست ویژگی | GitHub Discussions |
-| مشارکت | CONTRIBUTING.md |
-
----
-
-## لایسنس
-
-این پکیج تحت لایسنس MIT منتشر شده است.
-
----
-
-> **شروع سریع:** برای شروع فوری، به [05-installation.md](05-installation.md) مراجعه کنید.
-
----
-
-[→ ادامه: معرفی کلی (01-overview.md)](01-overview.md)
+# مستندات مرجع پکیج `karnoweb/laravel-accounting`
+
+این پوشه مرجع رسمی رفتار پکیج است. هرجا بین متن و کد اختلاف باشد، **کد مبنا** است.
+
+## مشخصات فعلی پکیج
+
+| مورد | مقدار |
+|------|-------|
+| نام پکیج | `karnoweb/laravel-accounting` |
+| نسخه فعلی | `13.4.1` |
+| PHP | `^8.3` |
+| Laravel | `^13.0` |
+| الگوی حسابداری | Double-Entry |
+
+## این پکیج چه مسئله‌ای را حل می‌کند؟
+
+این پکیج یک هسته حسابداری دوبل برای لاراول فراهم می‌کند که این مسئولیت‌ها را داخل خود نگه می‌دارد:
+
+- تعریف و نگهداری **Chart of Accounts**
+- ایجاد و ثبت قطعی **Document** و **DocumentItem**
+- کنترل چرخه **Fiscal Year**
+- محاسبه مانده و گردش حساب
+- تولید گزارش‌های مبتنی بر دفتر ثبت‌شده
+- مدیریت افتتاحیه، بستن سود و زیان، و برگشت عملیاتی
+
+این پکیج **جایگزین ERP کامل** نیست و موجودیت‌های تجاری مثل مشتری، فاکتور فروش، کالا، مالیات، انبار، بانک و صندوق را به‌صورت مستقل مدل نمی‌کند. اگر پروژه مصرف‌کننده چنین مفاهیمی داشته باشد، باید آن‌ها را از طریق حساب‌ها و اسناد به این هسته متصل کند.
+
+## دو محور اصلی مستندات
+
+### A) راهنمای استفاده از پکیج
+
+1. [01-overview.md](01-overview.md) — هدف، دامنه و قراردادهای اصلی
+2. [05-installation.md](05-installation.md) — نصب و راه‌اندازی
+3. [06-configuration.md](06-configuration.md) — پیکربندی واقعی
+4. [07-integration.md](07-integration.md) — اتصال به پروژه مصرف‌کننده
+5. [08-api-reference.md](08-api-reference.md) — API واقعی سرویس‌ها و facade
+6. [usage.md](usage.md) — شروع سریع و الگوهای رایج استفاده
+
+### B) دانشنامه ماژول‌ها و مفاهیم حسابداری
+
+1. [02-concepts.md](02-concepts.md) — مفاهیم حسابداری پیاده‌سازی‌شده
+2. [03-architecture.md](03-architecture.md) — معماری فنی و مرزهای دامنه
+3. [04-database-schema.md](04-database-schema.md) — جداول، روابط و محدودیت‌ها
+4. [09-reports.md](09-reports.md) — منبع داده و منطق گزارش‌ها
+5. [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md) — چرخه کامل سال مالی
+6. [12-security.md](12-security.md) — Audit، تغییرناپذیری و محدودیت‌ها
+7. [15-appendix.md](15-appendix.md) — واژه‌نامه، تفاوت مفاهیم مشابه و FAQ
+8. [16-documentation-gaps.md](16-documentation-gaps.md) — شکاف‌های مستندسازی و موارد نیازمند تصمیم انسانی
+
+## نقشه واقعی ماژول‌ها
+
+### مدل‌ها
+
+- `Account`
+- `FiscalYear`
+- `Document`
+- `DocumentItem`
+- `CostCenter`
+- `DocumentLog`
+- `DocumentNumberSequence`
+- `Branch` (رابطه اختیاری به مدل شعبهٔ اپلیکیشن)
+
+### سرویس‌ها
+
+- `AccountService`
+- `DocumentService`
+- `DocumentBuilder`
+- `BalanceService`
+- `ReportService`
+- `FiscalYearService`
+- `PostingService`
+- `OpeningService`
+- `ClosingService`
+- `ReversalService`
+
+### گزارش‌ها و DTOها
+
+- `LedgerQuery`
+- `HierarchyRollup`
+- `TrialBalanceReport`
+- `TrialBalanceRow`
+- `GeneralLedgerReport`
+- `AccountLedger`
+- `LedgerLine`
+
+## نکات مهم برای خواندن این مستندات
+
+- `branch_id` در این پکیج فقط یک **کلید تفکیک** در سطح حساب و سند است. جدول `branches` را خود پکیج ایجاد نمی‌کند.
+- `reference` فقط یک فیلد متنی روی سند است. در کد هیچ قاعده یکتایی یا semantics خاصی برای آن enforce نشده است.
+- `source_type` و `source_id` فقط لینک polymorphic به منبع تجاری سند هستند و unique نیستند.
+- گزارش‌ها فقط از **دفتر ثبت‌شده** می‌خوانند، نه از `cached_balance`.
+- Cost Center در این نسخه فقط روی `DocumentItem` ذخیره می‌شود و هنوز در گزارش‌های هسته‌ای فیلتر مستقلی ندارد.
+
+## چه چیزهایی عمداً در این پکیج نیست؟
+
+- جدول یا ماژول مستقل برای صندوق
+- جدول یا ماژول مستقل برای بانک
+- ماژول انتقال وجه بانکی
+- زیرسیستم اشخاص، مشتریان، تأمین‌کنندگان
+- ماژول کالا، خدمت، انبار یا مالیات
+- دوره مالی ماهانه یا `AccountingPeriod`
+- بازگشایی سال مالی بسته
+- اصلاح بین‌دوره‌ای سال بسته
+- برگشت جزئی سند
+
+## وضعیت مثال‌های موجود
+
+پوشه `docs/examples/shop/` سناریوهای آموزشی دامنهٔ فروشگاهی را نگه می‌دارد. این سناریوها **قرارداد هسته پکیج نیستند** و بخشی از آن‌ها به منطق اپلیکیشن مصرف‌کننده وابسته‌اند. برای تشخیص قابلیت‌های واقعی پکیج، این مثال‌ها باید همراه با کد هسته خوانده شوند، نه به‌عنوان Source of Truth مستقل.
+
+## مسیر پیشنهادی مطالعه
+
+1. [01-overview.md](01-overview.md)
+2. [02-concepts.md](02-concepts.md)
+3. [03-architecture.md](03-architecture.md)
+4. [04-database-schema.md](04-database-schema.md)
+5. [usage.md](usage.md)
+6. [09-reports.md](09-reports.md)
+7. [16-documentation-gaps.md](16-documentation-gaps.md)

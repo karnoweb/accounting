@@ -1,123 +1,198 @@
-# 03-architecture.md
-
 # معماری فنی
 
-## Architecture
+## نمای کلی
 
----
+معماری این پکیج حول سه هسته می‌چرخد:
 
-## مقدمه
+1. **دفتر حسابداری**: `Document` و `DocumentItem`
+2. **ساختار حساب‌ها**: `Account`
+3. **کنترل دوره ثبت**: `FiscalYear` و `PostingService`
 
-این بخش معماری فنی پکیج حسابداری را شرح می‌دهد. درک این معماری به توسعه‌دهندگان کمک می‌کند تا پکیج را به درستی در پروژه خود یکپارچه کنند.
+خدمات دیگر مثل افتتاحیه، اختتامیه، برگشت و گزارش‌گیری روی همین سه هسته سوار می‌شوند.
 
----
+## مرزهای دامنه
 
-## ۱. اصول معماری
+### داخل دامنه پکیج
 
-### ۱.۱ جداسازی نگرانی‌ها (Separation of Concerns)
+- حساب و ساختار حساب
+- سند و ردیف سند
+- سال مالی
+- مانده و گردش
+- گزارش‌های ledger-based
+- Audit سند
 
-پکیج به گونه‌ای طراحی شده که هیچ دانشی از پروژه مصرف‌کننده ندارد.
+### خارج از دامنه پکیج
 
-| لایه | مسئولیت | مثال |
-|------|---------|------|
-| پکیج حسابداری | ثبت اسناد، محاسبه مانده، گزارش‌گیری | Document, Account, Balance |
-| پروژه مصرف‌کننده | منطق تجاری، UI، احراز هویت | Order, Invoice, User |
+- فرآیند فروش، خرید، انبار، CRM
+- تعریف مشتری، فروشنده، بانک، صندوق به‌عنوان ماژول مستقل
+- UI، کنترلر، API اپلیکیشن
+- سیاست‌های دسترسی پروژه
 
-### ۱.۲ وابستگی یک‌طرفه
+## لایه‌های واقعی
 
-پروژه به پکیج وابسته است، نه برعکس.
+### ۱. Entry Point
 
-| جهت | از | به | مجاز |
-|-----|-----|-----|------|
-| ✅ | پروژه | پکیج | بله |
-| ❌ | پکیج | پروژه | خیر |
+- `Accounting` facade
+- `AccountingManager`
+- `AccountingServiceProvider`
 
-### ۱.۳ قابلیت پیکربندی
+این لایه فقط دسترسی به سرویس‌ها را ساده می‌کند و خودش منطق حسابداری پیچیده ندارد.
 
-رفتار پکیج از طریق Config قابل تنظیم است بدون نیاز به تغییر کد پکیج.
+### ۲. Application Services
 
----
+- `AccountService`
+- `DocumentService`
+- `BalanceService`
+- `ReportService`
+- `FiscalYearService`
+- `PostingService`
+- `OpeningService`
+- `ClosingService`
+- `ReversalService`
+- `DocumentBuilder`
 
-## ۲. لایه‌های سیستم
+این لایه محل اصلی orchestration و business ruleها است.
 
-### ۲.۱ نمای کلی لایه‌ها
+### ۳. Domain Model
 
-| لایه | نام | مسئولیت | اجزا |
-|------|-----|---------|------|
-| ۱ | Presentation | ارتباط با بیرون | Facade, Controllers |
-| ۲ | Application | منطق کاربردی | Services |
-| ۳ | Domain | قوانین تجاری | Models, Enums, Events |
-| ۴ | Infrastructure | دسترسی به داده | Migrations, Observers |
+- `Account`
+- `Document`
+- `DocumentItem`
+- `FiscalYear`
+- `CostCenter`
+- `DocumentLog`
+- `DocumentNumberSequence`
+- Enumها و Exceptionها
 
-### ۲.۲ جزئیات هر لایه
+مدل‌ها بخشی از قواعد را داخل `booted()` و متدهای خود نگه می‌دارند، اما اکثر جریان‌های مهم در سرویس‌ها جمع شده‌اند.
 
-**لایه Presentation:**
+### ۴. Persistence / Side Effects
 
-| جزء | مسئولیت |
-|-----|---------|
-| Accounting Facade | نقطه ورود ساده برای استفاده |
-| Controllers (اختیاری) | API endpoints برای REST |
+- Migrationها
+- `DocumentObserver`
+- Cache مربوط به `BalanceService`
+- رویدادهای `DocumentCreated`, `DocumentPosted`, `DocumentVoided`
 
-**لایه Application:**
+## جریان اصلی ثبت سند
 
-| جزء | مسئولیت |
-|-----|---------|
-| AccountService | مدیریت حساب‌ها |
-| DocumentService | ثبت و مدیریت اسناد |
-| BalanceService | محاسبه و Cache مانده |
-| ReportService | تولید گزارش‌ها |
-| FiscalYearService | مدیریت سال مالی |
-
-**لایه Domain:**
-
-| جزء | مسئولیت |
-|-----|---------|
-| Models | نگهداری داده و روابط |
-| Enums | تعریف مقادیر ثابت |
-| Events | اعلام رویدادها |
-| Exceptions | خطاهای خاص Domain |
-
-**لایه Infrastructure:**
-
-| جزء | مسئولیت |
-|-----|---------|
-| Migrations | ساختار دیتابیس |
-| Observers | واکنش به تغییرات Model |
-| ServiceProvider | ثبت سرویس‌ها در Laravel |
-
----
-
-## ۳. Design Patterns
-
-### ۳.۱ الگوهای استفاده شده
-
-| الگو | کاربرد در پکیج | مثال |
-|------|----------------|------|
-| Facade | ساده‌سازی API | `Accounting::document()` |
-| Service Layer | جداسازی منطق از Controller | `DocumentService` |
-| Repository (ضمنی) | دسترسی به داده از طریق Model | `Account::query()` |
-| Observer | واکنش به رویدادهای Model | `DocumentObserver` |
-| Builder | ساخت اشیاء پیچیده | `DocumentBuilder` |
-| Strategy | الگوریتم‌های قابل تعویض | `BalanceCalculator` |
-| Factory | ساخت حساب‌ها | `AccountFactory` |
-
-### ۳.۲ الگوی Facade
-
-نقطه ورود ساده برای استفاده از پکیج.
-
-**بدون Facade:**
-```php
-$service = app(DocumentService::class);
-$document = $service->create($data);
-$service->post($document);
+```mermaid
+flowchart TD
+    A[Accounting::document یا DocumentService::create] --> B[Resolve Fiscal Year]
+    B --> C[Validate items and postable accounts]
+    C --> D[Allocate document number]
+    D --> E[Create Document]
+    E --> F[Create DocumentItem rows]
+    F --> G[DocumentService::post]
+    G --> H[Validate status, balance, fiscal year, accounts]
+    H --> I[Mark document as posted]
+    I --> J[DocumentObserver]
+    J --> K[BalanceService::updateAfterDocument]
+    J --> L[DocumentPosted event]
 ```
 
-**با Facade:**
-```php
-Accounting::document()->create($data)->post();
+## جریان ابطال سند
+
+```mermaid
+flowchart TD
+    A[Document::void] --> B[Lock fiscal year and document]
+    B --> C[Check voidability and posted reversal]
+    C --> D[Update status to voided]
+    D --> E[DocumentObserver::handleVoided]
+    E --> F[BalanceService::reverseDocument]
+    E --> G[DocumentVoided event]
 ```
 
-### ۳.۳ الگوی Service Layer
+## جریان برگشت سند
+
+```mermaid
+flowchart TD
+    A[Document::reverse یا ReversalService] --> B[Lock fiscal year and original document]
+    B --> C[Check active FY and no posted closing]
+    C --> D[Invert persisted items]
+    D --> E[Create type=reversal document]
+    E --> F[Post reversal document]
+```
+
+## روابط ماژول‌ها
+
+```mermaid
+classDiagram
+    FiscalYear "1" --> "*" Document
+    Document "1" --> "*" DocumentItem
+    DocumentItem "*" --> "1" Account
+    DocumentItem "*" --> "0..1" CostCenter
+    Account "0..1" --> "*" Account : parent/children
+    Document "1" --> "*" DocumentLog
+    Document "0..1" --> "*" Document : reversal/original
+```
+
+## مسئولیت هر سرویس
+
+### `AccountService`
+
+- ایجاد حساب
+- تولید خودکار کد
+- resolve حساب‌های سیستمی
+- enforce کردن قواعد سلسله‌مراتب
+
+### `DocumentService`
+
+- ایجاد سند
+- تخصیص شماره سند
+- validate ردیف‌ها
+- validate `idempotency_key`
+- ثبت قطعی سند
+
+### `PostingService`
+
+- gate نهایی برای این پرسش: «آیا در این تاریخ و این سال مالی ثبت مجاز است؟»
+
+### `FiscalYearService`
+
+- create / update / activate / close
+- کنترل هم‌پوشانی سال‌ها
+- کنترل `opening_done`
+
+### `OpeningService`
+
+- ثبت سند افتتاحیه دستی
+- انتقال مانده از سال بسته به سال بعد
+
+### `ClosingService`
+
+- صفر کردن حساب‌های موقت
+- انتقال سود/زیان خالص به `retained_earnings`
+
+### `ReversalService`
+
+- ساخت سند معکوس برای یک سند posted عملیاتی
+
+### `ReportService`
+
+- ساخت گزارش‌های ledger-based
+- حفظ یک foundation مشترک با `LedgerQuery`
+
+## مهم‌ترین Business Ruleها و محل enforce شدن
+
+| قاعده | محل اصلی enforce |
+|------|-------------------|
+| سند باید متعادل باشد | `DocumentService` |
+| ثبت فقط روی حساب قابل‌ثبت | `Account::assertPostable()` و `AccountService` |
+| سند posted/voided قابل ویرایش نیست | `Document` و `DocumentItem` |
+| هم‌پوشانی سال مالی ممنوع | `FiscalYearService` |
+| فقط یک سال مالی active | `FiscalYearService` |
+| گزارش‌ها فقط posted را می‌بینند | `LedgerQuery` |
+| افتتاحیه فقط برای حساب‌های دائمی | `OpeningService` |
+| اختتامیه فقط برای حساب‌های موقت | `ClosingService` |
+| برگشت فقط در همان سال مالی active | `ReversalService` |
+
+## نکات معماری که نباید بدون بررسی تغییر کنند
+
+1. ترتیب گزارش‌ها در `LedgerQuery`، چون روی `runningBalance` اثر مستقیم دارد.
+2. قاعده detail-only posting، چون روی همه گزارش‌ها و افتتاحیه/اختتامیه اثر دارد.
+3. تفاوت `void` و `reversal`.
+4. این اصل که گزارش‌ها از `cached_balance` نمی‌خوانند.
+5. این اصل که `PostingService` تنها gate عمومی ثبت است.
 
 جداسازی منطق تجاری از Controller و Model.
 

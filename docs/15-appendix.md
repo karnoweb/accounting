@@ -1,93 +1,74 @@
-# Appendix (ضمیمه فنی)
+# ضمیمه
 
-## Glossary (واژه‌نامه)
+## واژه‌نامه
 
-* **Account**: موجودیت حسابداری پایه
-* **Detail Account**: تنها سطحی که ثبت مالی روی آن انجام می‌شود
-* **Document**: سند حسابداری شامل چند ردیف
-* **Document Item**: یک ردیف بدهکار یا بستانکار
-* **Fiscal Year**: بازه مالی فعال
-* **Branch**: شعبه عملیاتی مستقل
-* **Cost Center**: بُعد تحلیلی اختیاری
+- **Account**: حساب مالی
+- **Posting Level**: سطحی از درخت حساب که ثبت مستقیم روی آن مجاز است
+- **Document**: هدر سند حسابداری
+- **DocumentItem**: ردیف سند
+- **Fiscal Year**: تنها دوره مالی persisted در پکیج
+- **Opening**: ثبت مانده ابتدای سال یا انتقال مانده
+- **Closing**: بستن مانده حساب‌های موقت به سود انباشته
+- **Reversal**: سند معکوس‌کننده سند posted
+- **Void**: ابطال سند posted بدون ساخت سند جدید
 
----
+## تفاوت مفاهیم مشابه
+
+### `void` در برابر `reversal`
+
+- `void`: سند از posted ledger خارج می‌شود
+- `reversal`: سند اصلی می‌ماند و سند معکوس ساخته می‌شود
+
+### `FiscalYear::close()` در برابر `ClosingService::closeProfitAndLoss()`
+
+- `FiscalYear::close()`: فقط lifecycle year را می‌بندد
+- `ClosingService::closeProfitAndLoss()`: سند اختتامیه سود و زیان می‌سازد
+
+### `Account` در برابر `CostCenter`
+
+- `Account`: موضوع مالی ثبت
+- `CostCenter`: بُعد تحلیلی اختیاری روی ردیف
+
+### `reference` در برابر `number`
+
+- `number`: شماره داخلی سند در سال مالی
+- `reference`: متن آزاد برای ارجاع بیرونی
+
+### `branch_id` در برابر `account_id`
+
+- `account_id`: حساب مالی ردیف
+- `branch_id`: بُعد تفکیک عملیاتی سند یا حساب
 
 ## FAQ
 
-### چرا حسابداری polymorphic نیست؟
+### آیا پکیج ماژول بانک یا صندوق دارد؟
 
-برای جلوگیری از کوئری‌های پیچیده و گزارش‌گیری غیرقابل پیش‌بینی.
-تمام ثبت‌ها باید به account ختم شوند.
+خیر. فقط می‌توانید برای این مفاهیم در اپلیکیشن خود حساب بسازید یا از حساب‌های سیستمی استفاده کنید.
 
-### آیا می‌توان سند نامتوازن ثبت کرد؟
+### آیا می‌توان سند نامتعادل ثبت کرد؟
 
-خیر. این اعتبارسنجی در Domain enforce شده است.
+خیر. `DocumentService` آن را رد می‌کند.
 
-### آیا حذف سند وجود دارد؟
+### آیا می‌توان روی حساب گروه یا کل ثبت زد؟
 
-خیر. فقط void / reverse.
+خیر. فقط حساب قابل‌ثبت در `posting_level`.
 
----
+### آیا سال مالی بسته قابل بازگشایی است؟
 
-## Design Decisions (ADR)
+خیر. در کد فعلی `reopen()` وجود ندارد.
 
-### Account-Centric Design
+### آیا گزارش‌ها از `cached_balance` استفاده می‌کنند؟
 
-تمام سیستم حول account طراحی شده تا گزارش‌ها ساده بمانند.
+خیر. گزارش‌های هسته‌ای از ledger می‌خوانند.
 
-### No Stored Balance
+### آیا `source_type/source_id` یکتا هستند؟
 
-هیچ مانده‌ای ذخیره نمی‌شود؛ همه چیز محاسبه‌ای است.
+خیر. برای جلوگیری از تکرار باید از `idempotency_key` استفاده کنید.
 
-### Trait-Based Integration
+## تصمیم‌های معماری مهم
 
-مدل‌های پروژه با Trait به سیستم وصل می‌شوند:
-
-```php
-use HasAccountingAccount;
-```
-
----
-
-## ارتباط با Facade
-
-Facade اصلی:
-
-```php
-Accounting::document()
-    ->for($model)
-    ->addDebit($account, $amount)
-    ->addCredit($account, $amount)
-    ->post();
-```
-
-* Facade فقط orchestration
-* لاجیک داخل Serviceها
-
----
-
-## Changelog
-
-### v1.0.0
-
-* Core accounting
-* Chart of accounts
-* Document lifecycle
-
----
-
-## Future Roadmap
-
-* Period closing
-* Budgeting
-* Tax module
-* Multi-currency
-
----
-
-## نکات توسعه
-
-* همیشه از Enum استفاده کن
-* هیچ متن hardcode نکن
-* Facade فقط برای اپلیکیشن است
-* Domain باید framework-agnostic بماند
+1. Detail-only posting
+2. Ledger-first reporting
+3. Journal-free fiscal-year close
+4. Deterministic idempotency for opening/closing/reversal
+5. Separation between package core and consumer domain

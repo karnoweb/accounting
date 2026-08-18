@@ -1,123 +1,210 @@
-# 08-api-reference.md
-
 # مرجع API
 
-## API Reference
+این فایل فقط APIهایی را پوشش می‌دهد که در کد فعلی وجود دارند.
 
----
-
-## مقدمه
-
-این بخش مرجع کامل API پکیج حسابداری است. شامل تمام متدها، پارامترها، و مقادیر بازگشتی.
-
----
-
-## ۱. Facade اصلی
-
-### ۱.۱ معرفی
+## Facade اصلی
 
 ```php
-use YourVendor\Accounting\Facades\Accounting;
+use Karnoweb\Accounting\Facades\Accounting;
 ```
 
-Facade اصلی نقطه ورود ساده به تمام قابلیت‌های پکیج است.
+### متدهای utility
 
-### ۱.۲ متدهای عمومی
+| متد | خروجی | شرح |
+|-----|-------|-----|
+| `version()` | `string` | نسخه پکیج از `composer.json` |
+| `currentFiscalYear()` | `?FiscalYear` | سال مالی active جاری |
+| `currentBranch()` | `?Model` | شعبه پیش‌فرض از config |
+| `systemAccount($key)` | `Account` | resolve حساب سیستمی |
 
-| متد | شرح | خروجی |
-|-----|-----|-------|
-| `version()` | نسخه پکیج | string |
-| `config($key, $default)` | دریافت تنظیمات | mixed |
-| `currentFiscalYear()` | سال مالی جاری | FiscalYear |
-| `currentBranch()` | شعبه جاری | Branch |
-| `systemAccount($key)` | حساب سیستمی | Account |
+### دسترسی به سرویس‌ها
 
-### ۱.۳ دسترسی به سرویس‌ها
+| متد | خروجی |
+|-----|-------|
+| `document()` | `DocumentBuilder` |
+| `account()` | `AccountService` |
+| `balance()` | `BalanceService` |
+| `report()` | `ReportService` |
+| `fiscalYear()` | `FiscalYearService` |
+| `posting()` | `PostingService` |
+| `opening()` | `OpeningService` |
+| `closing()` | `ClosingService` |
+| `reversal()` | `ReversalService` |
 
-| متد | شرح | خروجی |
-|-----|-----|-------|
-| `document()` | سازنده سند | DocumentBuilder |
-| `account()` | سرویس حساب | AccountService |
-| `balance()` | سرویس مانده | BalanceService |
-| `report()` | سرویس گزارش | ReportService |
-| `fiscalYear()` | سرویس سال مالی | FiscalYearService |
-| `reversal()` | برگشت عملیاتی همان سال مالی | ReversalService |
+## `DocumentBuilder`
 
----
+### متدهای header
 
-## ۲. DocumentBuilder
+| متد | ورودی |
+|-----|-------|
+| `type(string $type)` | نوع سند |
+| `date(Carbon|string $date)` | تاریخ |
+| `description(string $text)` | شرح |
+| `notes(string $text)` | یادداشت |
+| `reference(string $text)` | مرجع |
+| `branch(Model|int $branch)` | شعبه |
+| `fiscalYear(FiscalYear|int $fiscalYear)` | سال مالی |
+| `source(Model $model)` | منبع polymorphic |
+| `idempotencyKey(string $key)` | کلید یکتایی retry |
+| `meta(array $meta)` | داده اضافی |
 
-### ۲.۱ شروع ساخت سند
+### متدهای ردیف
 
-```php
-$builder = Accounting::document();
-```
+| متد | ورودی |
+|-----|-------|
+| `debit(Account|int $account, float $amount, ?string $description = null)` | ردیف بدهکار |
+| `credit(Account|int $account, float $amount, ?string $description = null)` | ردیف بستانکار |
+| `costCenter(CostCenter|int|null $center)` | مرکز هزینه برای ردیف آخر یا بعدی |
 
-### ۲.۲ متدهای تنظیم
+### متدهای نهایی
 
-| متد | پارامتر | شرح | خروجی |
-|-----|---------|-----|-------|
-| `type($type)` | string | نوع سند | self |
-| `date($date)` | Carbon/string | تاریخ سند | self |
-| `description($text)` | string | توضیحات | self |
-| `notes($text)` | string | یادداشت | self |
-| `reference($ref)` | string | شماره مرجع | self |
-| `branch($branch)` | Branch/int | شعبه | self |
-| `fiscalYear($year)` | FiscalYear/int | سال مالی | self |
-| `source($model)` | Model | منبع سند | self |
-| `meta($data)` | array | اطلاعات اضافی | self |
+| متد | خروجی | شرح |
+|-----|-------|-----|
+| `save()` | `Document` | ایجاد سند draft |
+| `post()` | `Document` | ایجاد و ثبت قطعی |
+| `toArray()` | `array` | payload فعلی builder |
 
-### ۲.۳ متدهای آیتم
+### نکات
 
-| متد | پارامترها | شرح |
-|-----|-----------|-----|
-| `debit($account, $amount, $description)` | Account/int, float, string | افزودن آیتم بدهکار |
-| `credit($account, $amount, $description)` | Account/int, float, string | افزودن آیتم بستانکار |
-| `item($account, $amount, $sign, $description)` | Account/int, float, int, string | افزودن آیتم |
-| `costCenter($center)` | CostCenter/int | تنظیم مرکز هزینه برای آیتم آخر |
+- هر `Accounting::document()` یک builder تازه می‌سازد.
+- بعد از `save()` یا `post()`، state builder reset می‌شود.
+- متدهایی مثل `item()`, `validate()`, `getItems()`, `getTotal()` در کد فعلی وجود ندارند.
 
-### ۲.۴ متدهای ذخیره
+## `AccountService`
 
-| متد | شرح | خروجی |
-|-----|-----|-------|
-| `save()` | ذخیره پیش‌نویس | Document |
-| `post()` | ذخیره و ثبت قطعی | Document |
-| `validate()` | اعتبارسنجی بدون ذخیره | bool |
-| `getItems()` | دریافت آیتم‌ها قبل از ذخیره | array |
-| `getTotal()` | جمع مبلغ | array |
+### متدهای اصلی
 
-### ۲.۵ مثال کامل
+| متد | شرح |
+|-----|-----|
+| `create(array $data)` | ایجاد حساب |
+| `assertPostable(Account|int $account)` | اطمینان از قابل‌ثبت بودن |
+| `find(int $id)` | جستجو با شناسه |
+| `findOrFail(int $id)` | جستجو با خطا |
+| `findByCode(string $code)` | جستجو با کد |
+| `findByCodeOrFail(string $code)` | جستجو با خطا |
+| `findByEntity(string $entityType, int $entityId)` | جستجو بر اساس لینک بیرونی |
+| `getSystemAccount(string $key)` | دریافت حساب سیستمی |
+| `search(array $filters)` | جستجوی ساده |
 
-```php
-$document = Accounting::document()
-    ->type('sale')
-    ->date('2024-03-15')
-    ->branch(1)
-    ->description('فروش کالا به مشتری')
-    ->reference('INV-2024-001')
-    ->source($order)
-    ->meta(['order_id' => $order->id])
-    ->debit($customer->account, 1500000, 'بدهکار شدن مشتری')
-    ->credit($salesAccount, 1500000, 'درآمد فروش')
-    ->debit($costAccount, 1000000, 'بهای تمام شده')
-    ->credit($productAccount, 1000000, 'خروج کالا')
-        ->costCenter($projectA)
-    ->post();
-```
+## `DocumentService`
 
----
+### متدهای اصلی
 
-## ۳. AccountService
+| متد | شرح |
+|-----|-----|
+| `create(array $data)` | ایجاد سند و ردیف‌ها |
+| `post(Document|int $document)` | ثبت قطعی |
+| `getNextNumber(?FiscalYear $fiscalYear = null, ?int $branchId = null)` | شماره بعدی |
+| `isBalanced(Document $document)` | بررسی تعادل |
 
-### ۳.۱ دسترسی
+### نکات
 
-```php
-$accountService = Accounting::account();
-// یا
-$accountService = app(AccountService::class);
-```
+- `create()` شماره سند را تخصیص می‌دهد.
+- `create()` و `post()` هر دو از `PostingService` برای کنترل سال مالی و تاریخ عبور می‌کنند.
+- `idempotency_key` در سطح دیتابیس unique است.
 
-### ۳.۲ متدهای CRUD
+## `BalanceService`
+
+| متد | شرح |
+|-----|-----|
+| `getBalance()` | مانده حساب |
+| `calculateRealtime()` | مانده realtime |
+| `getBalanceAsOf()` | مانده تا تاریخ |
+| `getDebitTotal()` | جمع بدهکار |
+| `getCreditTotal()` | جمع بستانکار |
+| `getTurnover()` | گردش بازه |
+| `refreshCache()` | بازسازی کش |
+
+## `ReportService`
+
+| متد | خروجی | شرح |
+|-----|--------|-----|
+| `trialBalance(?FiscalYear $fiscalYear = null)` | `array` | متد قدیمی deprecated |
+| `trialBalanceDetailed(LedgerQuery|FiscalYear|null $criteria = null)` | `TrialBalanceReport` | تراز آزمایشی واقعی |
+| `generalLedger(LedgerQuery $query)` | `GeneralLedgerReport` | دفتر کل |
+| `accountStatement(LedgerQuery $query)` | `AccountLedger` | دفتر یک حساب |
+
+## `FiscalYearService`
+
+| متد | شرح |
+|-----|-----|
+| `current()` | سال مالی جاری |
+| `findByDate(string $date)` | یافتن سال بر اساس تاریخ |
+| `create(array $data)` | ایجاد draft |
+| `update(FiscalYear|int $fiscalYear, array $data)` | ویرایش |
+| `activate(FiscalYear|int $fiscalYear)` | فعال‌سازی |
+| `validateCanClose(FiscalYear|int $fiscalYear)` | پیش‌بررسی بستن |
+| `close(FiscalYear|int $fiscalYear)` | بستن سال |
+| `completeOpening(FiscalYear|int $fiscalYear)` | تکمیل فلگ افتتاحیه |
+| `revertOpening(FiscalYear|int $fiscalYear)` | برگشت فلگ افتتاحیه |
+| `assertAcceptsPosting(FiscalYear $fiscalYear, string $date)` | primitive داخلی ثبت |
+| `assertNoOverlap(string $startDate, string $endDate, ?int $exceptId = null)` | کنترل هم‌پوشانی |
+
+## `PostingService`
+
+| متد | شرح |
+|-----|-----|
+| `assertAllowed(string|\DateTimeInterface $date, FiscalYear|int|null $fiscalYear = null, ?string $type = null, ?int $branchId = null)` | gate عمومی ثبت |
+
+`type` و `branchId` در signature فعلی هستند، اما در تصمیم‌گیری امروز نقشی ندارند.
+
+## `OpeningService`
+
+| متد | شرح |
+|-----|-----|
+| `isComplete(FiscalYear|int $fiscalYear)` | وضعیت `opening_done` |
+| `post(FiscalYear|int $target, array $items, ?int $branchId = null)` | ثبت افتتاحیه دستی |
+| `carryForward(FiscalYear|int $source, FiscalYear|int $target)` | انتقال مانده سال بسته |
+
+## `ClosingService`
+
+| متد | شرح |
+|-----|-----|
+| `isProfitAndLossClosed(FiscalYear|int $fiscalYear)` | بررسی صفر شدن موقت‌ها |
+| `closeProfitAndLoss(FiscalYear|int $fiscalYear)` | ثبت سند اختتامیه سود و زیان |
+
+## `ReversalService`
+
+| متد | شرح |
+|-----|-----|
+| `reverse(Document|int $document, array $options = [])` | برگشت کامل سند |
+| `idempotencyKey(Document $original)` | کلید deterministic برگشت |
+
+## مدل‌ها
+
+### `Document`
+
+متدهای مهم:
+
+- `post()`
+- `reverse(?string $reason = null)`
+- `markAsPosted(?int $postedBy = null)`
+- `void(string $reason = '')`
+- `isBalanced()`
+- `isPosted()`
+- `isEditable()`
+- `isVoidable()`
+
+### `FiscalYear`
+
+متدهای مهم:
+
+- `current()`
+- `findByDate($date)`
+- `activate()`
+- `close()`
+- `completeOpening()`
+- `revertOpening()`
+
+### `Account`
+
+متدهای مهم:
+
+- `balance(?FiscalYear $fiscalYear = null)`
+- `isPostable()`
+- `assertPostable()`
+- `canDelete()`
+- `refreshBalance()`
 
 **create**
 
