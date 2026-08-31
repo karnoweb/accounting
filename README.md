@@ -21,7 +21,7 @@ composer require karnoweb/laravel-accounting:^13.3
 composer require karnoweb/laravel-accounting:^1.0
 ```
 
-نسخه فعلی: **13.3.0** — `Accounting::version()` از `composer.json` خوانده می‌شود.
+نسخه فعلی: **13.4.2** — `Accounting::version()` از `composer.json` خوانده می‌شود.
 
 از 13.1 اینثوریانت‌های کرنل دفتر (ثبت فقط روی حساب قابل‌ثبت، تغییرناپذیری خطوط posted، مسیر کانونیکال post، تراز FY-aware، شماره‌گذاری امن، ایزوله بودن builder) در خود پکیج تضمین می‌شوند. جزئیات: [docs/usage.md](docs/usage.md).
 
@@ -69,7 +69,15 @@ php artisan vendor:publish --tag=accounting-config
 
 ### مایگریشن‌ها
 
-مایگریشن‌های پکیج به‌صورت خودکار بارگذاری می‌شوند. پس از نصب، اجرا کنید:
+مایگریشن‌های پکیج به‌صورت خودکار از داخل پکیج بارگذاری می‌شوند (`loadMigrationsFrom`). در صورت نیاز به ویرایش یا کپی در پروژه:
+
+```bash
+php artisan vendor:publish --tag=accounting-migrations
+```
+
+فایل‌ها با **همان نام** (از جمله تاریخ `2021_01_01_*`) در `database/migrations` کپی می‌شوند تا در ابتدای ترتیب مایگریشن‌های پروژه قرار بگیرند؛ تاریخ جدید ساخته نمی‌شود.
+
+سپس اجرا کنید:
 
 ```bash
 php artisan migrate

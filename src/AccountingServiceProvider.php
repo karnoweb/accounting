@@ -114,6 +114,10 @@ class AccountingServiceProvider extends ServiceProvider
             $this->publishes([
                 __DIR__ . '/../lang' => lang_path('vendor/accounting'),
             ], 'accounting-lang');
+
+            $this->publishes([
+                __DIR__ . '/../database/migrations' => database_path('migrations'),
+            ], 'accounting-migrations');
         }
     }
 }
