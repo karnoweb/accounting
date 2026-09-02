@@ -56,9 +56,9 @@ class ClosingService
             $this->lockPostedDocuments($fiscalYear);
             $this->assertActive($fiscalYear);
 
-            $retainedEarnings = $this->resolveRetainedEarnings($fiscalYear);
+            $this->assertRetainedEarningsCodeConfigured($fiscalYear);
             $existingClosings = $this->postedClosingDocuments($fiscalYear);
-            $plans = $this->plansFromSource($fiscalYear, $retainedEarnings, $existingClosings);
+            $plans = $this->plansFromSource($fiscalYear, $existingClosings);
             $expected = array_values(array_filter($plans, fn (array $plan) => $plan['items'] !== []));
 
             $existing = $this->matchingPostedClosings($fiscalYear, $expected);
@@ -96,7 +96,27 @@ class ClosingService
         }
     }
 
-    private function resolveRetainedEarnings(FiscalYear $fiscalYear): Account
+    private function assertRetainedEarningsCodeConfigured(FiscalYear $fiscalYear): void
+    {
+        $code = config('accounting.account.system_accounts.retained_earnings');
+        if ( ! is_string($code) || $code === '') {
+            throw new FiscalYearStateException(
+                $fiscalYear,
+                __('accounting::accounting.messages.closing_retained_earnings_missing')
+            );
+        }
+    }
+
+    /**
+     * Resolve the retained earnings account for one branch bucket.
+     *
+     * Uses findByCodeForBranch() so a dedicated per-branch account (same code,
+     * branch_id = $branchId) wins when it exists, falling back to a shared
+     * (branch_id null) account otherwise. Resolving this per branch — instead of
+     * once for the whole close — is what stops closing branch 4 from posting
+     * into branch 1's retained earnings account.
+     */
+    private function resolveRetainedEarnings(FiscalYear $fiscalYear, ?int $branchId): Account
     {
         $code = config('accounting.account.system_accounts.retained_earnings');
         if ( ! is_string($code) || $code === '') {
@@ -106,7 +126,7 @@ class ClosingService
             );
         }
 
-        $account = $this->accountService->findByCode($code);
+        $account = $this->accountService->findByCodeForBranch($code, $branchId);
         if ( ! $account) {
             throw new FiscalYearStateException(
                 $fiscalYear,
@@ -136,10 +156,11 @@ class ClosingService
      * @param  Collection<int, Document>  $existingClosings
      * @return list<array{branch_id: ?int, items: list<array{account_id: int, amount: float, sign: int}>, residual: float}>
      */
-    private function plansFromSource(FiscalYear $fiscalYear, Account $retainedEarnings, Collection $existingClosings): array
+    private function plansFromSource(FiscalYear $fiscalYear, Collection $existingClosings): array
     {
         $plans = [];
         foreach ($this->postedBranchIds($fiscalYear) as $branchId) {
+            $retainedEarnings = $this->resolveRetainedEarnings($fiscalYear, $branchId);
             $plans[] = $this->planForBranch($fiscalYear, $branchId, $retainedEarnings, $existingClosings);
         }
 

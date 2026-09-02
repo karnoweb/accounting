@@ -18,6 +18,7 @@ use Karnoweb\Accounting\Services\OpeningService;
 use Karnoweb\Accounting\Services\PostingService;
 use Karnoweb\Accounting\Services\ReportService;
 use Karnoweb\Accounting\Services\ReversalService;
+use Karnoweb\Accounting\Support\BranchContext;
 
 /**
  * Central manager for accounting services and context.
@@ -101,7 +102,9 @@ class AccountingManager
     }
 
     /**
-     * Get the default branch from config (by default_id or is_default), or null if branch is disabled.
+     * Get the current branch: the configured `resolver` wins when set (matching
+     * DocumentService's default-branch logic), otherwise `default_id`, otherwise
+     * the model flagged `is_default`. Null if branch is disabled.
      *
      * @return Model|null Instance of config('accounting.branch.model') or null
      */
@@ -116,7 +119,7 @@ class AccountingManager
             return null;
         }
 
-        $id = config('accounting.branch.default_id');
+        $id = BranchContext::resolveDefaultId();
 
         return $id ? $modelClass::find($id) : $modelClass::where('is_default', true)->first();
     }
@@ -124,11 +127,14 @@ class AccountingManager
     /**
      * Get a system account by config key (e.g. 'cash', 'bank', 'receivables', 'payables', 'sales_income', 'cost_of_goods', 'refund_expense').
      *
+     * Pass $branchId (e.g. `Accounting::currentBranch()?->id`) to resolve the
+     * account for that branch instead of the first match by code.
+     *
      * @throws InvalidArgumentException When the key is not configured in accounting.account.system_accounts
      */
-    public function systemAccount(string $key): Account
+    public function systemAccount(string $key, ?int $branchId = null): Account
     {
-        return $this->accountService->getSystemAccount($key);
+        return $this->accountService->getSystemAccount($key, $branchId);
     }
 
     /** Package version string (from composer.json). */

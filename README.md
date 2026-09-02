@@ -105,6 +105,39 @@ $this->call(\Karnoweb\Accounting\Database\Seeders\DefaultAccountsSeeder::class);
 
 یا برای یک شعبه مشخص: `DefaultAccountsSeeder::syncForBranch($branchId);`
 
+### حساب‌های سیستمی پیش‌فرض
+
+جدول زیر کلیدهای `accounting.account.system_accounts` و حساب (سطح ۳، قابل ثبت) متناظرشان در سیدر پیش‌فرض است. با `Accounting::systemAccount('کلید')` یا `Accounting::systemAccount('کلید', $branchId)` قابل دسترسی‌اند:
+
+| کلید | کد | کاربرد |
+|---|---|---|
+| `cash` | `110101` | صندوق |
+| `bank` | `110201` | بانک |
+| `receivables` | `110300` | حساب‌های دریافتنی تجاری |
+| `payables` | `210101` | حساب‌های پرداختنی تجاری |
+| `sales_income` | `410101` | درآمد فروش |
+| `sales_discount` | `490101` | تخفیفات فروش (کاهندهٔ درآمد) |
+| `sales_return` | `490201` | برگشت از فروش (کاهندهٔ درآمد) |
+| `cost_of_goods` | `510101` | بهای تمام‌شدهٔ کالای فروش‌رفته |
+| `refund_expense` | `520101` | هزینهٔ استرداد |
+| `retained_earnings` | `310101` | سود انباشته (برای `ClosingService`) |
+| `inventory` | `110901` | موجودی کالا (برای `karnoweb/laravel-inventory`) |
+| `inventory_shrinkage` | `520401` | ضایعات و کسری انبار |
+| `inventory_count_gain` | `410201` | اضافات انبارگردانی |
+| `employee_loan_receivable` | `111101` | وام/مساعدهٔ کارکنان (برای HR) |
+| `gateway_clearing` | `110501` | تسویهٔ درگاه پرداخت آنلاین |
+| `vat_payable` | `210401` | مالیات بر ارزش افزودهٔ پرداختنی |
+| `payroll_tax_payable` | `210402` | مالیات حقوق پرداختنی |
+| `payroll_payable` | `210501` | حقوق و دستمزد پرداختنی |
+| `payroll_insurance_payable` | `210502` | بیمهٔ حقوق پرداختنی |
+| `payroll_salary_expense` | `520201` | هزینهٔ حقوق و دستمزد |
+| `payroll_employer_insurance` | `520202` | سهم کارفرمای بیمه |
+| `bank_fee` | `520301` | کارمزد بانک/درگاه |
+
+علاوه بر این‌ها، کیف پول/اعتبار مشتری به‌عنوان بدهی زیر گروه `2106` (بدهی کیف پول مشتریان) سید می‌شود؛ چون هر مشتری معمولاً حساب تفصیلی خودش را در زمان اجرا می‌گیرد (مثلاً با `HasAccount`)، برای آن کلید سیستمی تعریف نشده است.
+
+`1103` و `2101` خودشان (سطح ۲) گروه هستند و قابل ثبت مستقیم نیستند؛ فقط برای گزارش/رول‌آپ نگه داشته می‌شوند — حساب‌های تفصیلی قابل ثبت زیر آن‌ها (`110300`, `210101`) هستند که `system_accounts` به آن‌ها اشاره می‌کند.
+
 ### حساب‌های اضافی (کاربر / پروژه)
 
 - **در سید:** در `config/accounting.php` آرایهٔ `account.custom_seed` را پر کنید تا همراه پیش‌فرض‌ها سینک شوند. هر عنصر مثل تعریف پیش‌فرض: `code`, `title`, `level`, `type` (مقدار enum مثل `asset`)، و `parent_code` یا `parent_id`. مثال:

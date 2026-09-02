@@ -131,7 +131,15 @@ class ReportService
         $accountIds = $query->accountIds();
 
         if ($accountIds === []) {
-            $accountIds = $this->accountService->search(['level' => AccountHierarchy::postingLevel()])
+            // Match the query's own branch scope — otherwise a branch-filtered
+            // query (documents correctly scoped) would still pull every branch's
+            // accounts into the report via this "no explicit account" fallback.
+            $filters = ['level' => AccountHierarchy::postingLevel()];
+            if ($query->isBranchFilterApplied()) {
+                $filters['branch_id'] = $query->branchId();
+            }
+
+            $accountIds = $this->accountService->search($filters)
                 ->pluck('id')
                 ->all();
             $query = (clone $query)->forAccounts($accountIds);

@@ -599,7 +599,7 @@ class ReversalServiceTest extends TestCase
     public function test_reversal_migration_rolls_back_and_reapplies(): void
     {
         $table = config('accounting.general.prefix', 'acc_').'documents';
-        $migration = require __DIR__.'/../database/migrations/2024_01_01_000010_add_document_reversal.php';
+        $migration = require __DIR__.'/../database/migrations/2021_01_01_000010_add_document_reversal.php';
 
         $this->assertTrue(\Illuminate\Support\Facades\Schema::hasColumn($table, 'reversed_document_id'));
         $migration->down();

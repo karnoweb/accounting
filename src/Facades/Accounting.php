@@ -34,8 +34,8 @@ use Karnoweb\Accounting\Services\ReversalService;
  * @method static PostingService    posting()                  Ask whether a document may be posted (FY + date).
  * @method static ReversalService   reversal()                 Reverse a posted operational document in the same FY.
  * @method static FiscalYear|null   currentFiscalYear()        Get the active fiscal year, or null.
- * @method static Model|null        currentBranch()            Get default branch from config, or null if disabled.
- * @method static Account           systemAccount(string $key) Get system account by key (e.g. 'cash', 'bank').
+ * @method static Model|null        currentBranch()            Get current branch via resolver/default_id/is_default, or null if disabled.
+ * @method static Account           systemAccount(string $key, ?int $branchId = null) Get system account by key (e.g. 'cash', 'bank'), optionally scoped to a branch.
  * @method static string            version()                  Package version string.
  *
  * @mixin \Karnoweb\Accounting\AccountingManager

@@ -40,12 +40,35 @@ return [
         'system_accounts' => [
             'cash' => '110101',
             'bank' => '110201',
-            'receivables' => '1103',
-            'payables' => '2101',
+            // '1103'/'2101' are level-2 group (moein) accounts — not postable.
+            // Point these at the level-3 detail leaves added below instead.
+            'receivables' => '110300',
+            'payables' => '210101',
             'sales_income' => '410101',
             'cost_of_goods' => '510101',
             'refund_expense' => '520101',
             'retained_earnings' => '310101',
+            // Inventory (used by e.g. karnoweb/laravel-inventory integrations).
+            'inventory' => '110901',
+            'inventory_shrinkage' => '520401',
+            'inventory_count_gain' => '410201',
+            // Loans/advances to employees (HR payroll integrations).
+            'employee_loan_receivable' => '111101',
+            // Online payment gateway settlement.
+            'gateway_clearing' => '110501',
+            // Contra-revenue.
+            'sales_discount' => '490101',
+            'sales_return' => '490201',
+            // Tax.
+            'vat_payable' => '210401',
+            'payroll_tax_payable' => '210402',
+            // Payroll (HR integrations).
+            'payroll_payable' => '210501',
+            'payroll_insurance_payable' => '210502',
+            'payroll_salary_expense' => '520201',
+            'payroll_employer_insurance' => '520202',
+            // Bank/gateway charges.
+            'bank_fee' => '520301',
         ],
     ],
 

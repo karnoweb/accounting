@@ -1,5 +1,36 @@
 # Changelog
 
+## [13.4.3] - 2026-09-02
+
+### Fixed
+
+- **Multi-branch account/document isolation.** Several lookups silently ignored `branch_id`, letting one branch's data leak into or be posted against another branch's accounts:
+  - `ClosingService::closeProfitAndLoss()` resolved a single retained-earnings account for the fiscal year regardless of branch; closing one branch could credit another branch's retained earnings. It now resolves retained earnings per posted branch bucket.
+  - `AccountService::getSystemAccount()` ignored branch entirely (always the first account with a given code, effectively HQ's). It now accepts an optional `$branchId` and resolves the branch-specific account, falling back to a shared (`branch_id = null`) account when no dedicated one exists. `Accounting::systemAccount($key, $branchId = null)` exposes this.
+  - `AccountService::create()` could attach a child under a parent from a *different* branch (via `parent_id` or the unscoped `parent_code` fallback), letting a branch's accounts nest under another branch's tree. Parent lookup by `parent_code` is now branch-scoped and throws `AccountNotFoundException` if not found for that branch (no silent cross-branch fallback); attaching under a parent with a different, non-null `branch_id` throws `InvalidAccountHierarchyException`.
+  - `AccountService::search()` had no `branch_id` filter, so branch-unaware callers (e.g. the legacy `trialBalance()`) mixed all branches together.
+  - `DocumentService` did not check that an item's account belonged to the document's branch, allowing cross-branch postings. `create()` / `post()` now reject an item whose account has a different, non-null `branch_id` than the document.
+  - `AccountingManager::currentBranch()` only read `accounting.branch.default_id` and ignored a configured `accounting.branch.resolver`, unlike `DocumentService`. Both now share the new `Support\BranchContext::resolveDefaultId()` helper.
+  - `ReportService::buildAccountLedgers()`'s "no accounts requested" fallback could include accounts from every branch; it now respects the `LedgerQuery`'s branch filter.
+  - `HasAccount::createAccount()` looked up `parent_code` without `branch_id`, same class of bug as `AccountService::create()`.
+- `DefaultAccountsSeeder` now fails fast with a clear error if `accounting.account.code_length` doesn't match the hardcoded seed codes' assumed lengths (`[1,2,4,6]`), instead of silently seeding a chart that corrupts later auto-generated codes.
+
+### Added
+
+- New `Support\BranchContext::resolveDefaultId()` — centralizes branch resolution (resolver callback, else `default_id`, else `null` when branching is disabled), shared by `DocumentService` and `AccountingManager`.
+- New exception messages (`account_parent_branch_mismatch`, `account_branch_mismatch`) in `lang/en` and `lang/fa`.
+- **Extended default chart of accounts** (`DefaultAccountsSeeder`) — new accounts validated against real customer apps built on this package (HR payroll/loans, `karnoweb/laravel-inventory`, e-commerce/LMS billing):
+  - Inventory asset (`110901`), inventory shrinkage/waste expense (`520401`), and inventory count-surplus income (`410201`) for stock receive/issue/waste/adjustment flows.
+  - Employee loan/advance receivable (`111101`) and payroll payable/insurance-payable/tax-payable liabilities (`210501`, `210502`, `210402`) plus salary and employer-insurance expense (`520201`, `520202`) for HR payroll accrual and payment.
+  - Payment gateway clearing asset (`110501`) so online captures land here before settling to the bank, instead of being posted straight into the operating bank account.
+  - Sales discount (`490101`) and sales return (`490201`) contra-revenue accounts, kept separate from gross sales income.
+  - VAT payable (`210401`) liability for output tax on sales.
+  - Petty cash / imprest float (`110401`), separate from the main cash drawer.
+  - Bank/gateway fee expense (`520301`).
+  - Customer wallet / store-credit liability group (`2106`) for prepaid balances (left as a group; individual wallets get their own detail account nested here at runtime).
+  - `config('accounting.account.system_accounts')` gained matching keys: `inventory`, `inventory_shrinkage`, `inventory_count_gain`, `employee_loan_receivable`, `gateway_clearing`, `sales_discount`, `sales_return`, `vat_payable`, `payroll_tax_payable`, `payroll_payable`, `payroll_insurance_payable`, `payroll_salary_expense`, `payroll_employer_insurance`, `bank_fee`.
+  - Also fixes `receivables` / `payables`: they previously resolved to the level-2 group (moein) accounts `1103` / `2101`, which always have `allow_direct_posting = false`, so any document posted against `Accounting::systemAccount('receivables'|'payables')` threw `NotPostableException`. `system_accounts` now points these keys at new level-3 detail leaves (`110300`, `210101`); the old group accounts are still seeded (for hierarchy/rollup) and remain correctly non-postable.
+
 ## [13.4.2] - 2026-08-31
 
 ### Changed

@@ -27,10 +27,31 @@ class AccountService
     {
         return DB::transaction(function () use ($data) {
             $parent = null;
+            $branchId = array_key_exists('branch_id', $data) ? $data['branch_id'] : null;
+
             if ( ! empty($data['parent_id'])) {
                 $parent = Account::findOrFail($data['parent_id']);
             } elseif ( ! empty($data['parent_code'])) {
-                $parent = Account::where('code', $data['parent_code'])->firstOrFail();
+                $parent = $this->findByCode($data['parent_code'], $branchId);
+
+                if ( ! $parent) {
+                    $scope = $branchId !== null ? " (branch {$branchId})" : '';
+                    throw new AccountNotFoundException(
+                        "Parent account with code {$data['parent_code']}{$scope} not found"
+                    );
+                }
+            }
+
+            // Both sides must agree on branch: a branch-scoped account can only nest
+            // under a parent that is either shared (branch_id null) or the same branch.
+            // Prevents e.g. branch 4 accounts silently attaching under branch 1's tree.
+            if ($parent && $parent->branch_id !== null && $branchId !== null && $parent->branch_id !== $branchId) {
+                throw new InvalidAccountHierarchyException(
+                    __('accounting::accounting.messages.account_parent_branch_mismatch', [
+                        'parent_branch' => $parent->branch_id,
+                        'branch' => $branchId,
+                    ])
+                );
             }
 
             $level = $parent ? $parent->level + 1 : 0;
@@ -53,7 +74,7 @@ class AccountService
             }
 
             if (empty($data['code']) && config('accounting.account.auto_code', true)) {
-                $data['code'] = $this->generateCode($parent);
+                $data['code'] = $this->generateCode($parent, $branchId);
             }
 
             if (empty($data['nature']) && ! empty($data['type'])) {
@@ -77,7 +98,7 @@ class AccountService
 
             $account = Account::create([
                 'parent_id' => $parent?->id,
-                'branch_id' => $data['branch_id'] ?? null,
+                'branch_id' => $branchId,
                 'code' => $data['code'],
                 'title' => $data['title'],
                 'description' => $data['description'] ?? null,
@@ -125,19 +146,26 @@ class AccountService
         return Account::findOrFail($id);
     }
 
-    /** Find account by code, or null if not found. */
-    public function findByCode(string $code): ?Account
+    /** Find account by code (optionally scoped to a branch), or null if not found. */
+    public function findByCode(string $code, ?int $branchId = null): ?Account
     {
-        return Account::where('code', $code)->first();
+        $query = Account::where('code', $code);
+
+        if ($branchId !== null) {
+            $query->where('branch_id', $branchId);
+        }
+
+        return $query->first();
     }
 
-    /** Find account by code, or throw AccountNotFoundException. */
-    public function findByCodeOrFail(string $code): Account
+    /** Find account by code (optionally scoped to a branch), or throw AccountNotFoundException. */
+    public function findByCodeOrFail(string $code, ?int $branchId = null): Account
     {
-        $account = $this->findByCode($code);
+        $account = $this->findByCode($code, $branchId);
 
         if ( ! $account) {
-            throw new AccountNotFoundException("Account with code {$code} not found");
+            $scope = $branchId !== null ? " (branch {$branchId})" : '';
+            throw new AccountNotFoundException("Account with code {$code}{$scope} not found");
         }
 
         return $account;
@@ -152,11 +180,51 @@ class AccountService
     }
 
     /**
+     * Find account by code, preferring an exact branch match and falling back to a
+     * shared (branch_id IS NULL) account of the same code.
+     *
+     * Use this — instead of findByCode() — for any branch-sensitive lookup (system
+     * accounts, retained earnings). Multi-branch charts (each branch has its own
+     * account for the code) resolve to the right branch; single/shared charts
+     * (one account, branch_id null, used by every branch) keep working unchanged.
+     */
+    public function findByCodeForBranch(string $code, ?int $branchId): ?Account
+    {
+        if ($branchId !== null) {
+            $scoped = $this->findByCode($code, $branchId);
+            if ($scoped !== null) {
+                return $scoped;
+            }
+        }
+
+        return Account::where('code', $code)->whereNull('branch_id')->first();
+    }
+
+    /** @see findByCodeForBranch() */
+    public function findByCodeForBranchOrFail(string $code, ?int $branchId): Account
+    {
+        $account = $this->findByCodeForBranch($code, $branchId);
+
+        if ( ! $account) {
+            throw new AccountNotFoundException("Account with code {$code} (branch {$branchId}) not found");
+        }
+
+        return $account;
+    }
+
+    /**
      * Get system account by config key (e.g. 'cash', 'bank', 'receivables', 'payables', 'sales_income', 'cost_of_goods', 'refund_expense').
+     *
+     * Pass $branchId to resolve the account for a specific branch — an exact
+     * (code, branch) match wins, falling back to a shared (branch_id null)
+     * account. Omitting $branchId keeps the legacy behavior of returning the
+     * first account with that code regardless of branch; pass it explicitly
+     * whenever the caller has a branch in context (this is what multi-branch
+     * callers were missing).
      *
      * @throws InvalidArgumentException When key is not in accounting.account.system_accounts
      */
-    public function getSystemAccount(string $key): Account
+    public function getSystemAccount(string $key, ?int $branchId = null): Account
     {
         $code = config("accounting.account.system_accounts.{$key}");
 
@@ -164,13 +232,23 @@ class AccountService
             throw new InvalidArgumentException("System account key '{$key}' not configured");
         }
 
-        return $this->findByCodeOrFail($code);
+        if ($branchId === null) {
+            return $this->findByCodeOrFail($code);
+        }
+
+        return $this->findByCodeForBranchOrFail($code, $branchId);
     }
 
     /**
-     * Search accounts by query (title/code), type, level, is_active. Returns collection ordered by code.
+     * Search accounts by query (title/code), type, level, is_active, branch. Returns collection ordered by code.
      *
-     * @param  array{query?: string, type?: string, level?: int, is_active?: bool} $filters
+     * branch_id is only applied when the key is present in $filters (array_key_exists,
+     * not isset), and — matching findByCodeForBranch()'s resolution rule — an account
+     * usable "in branch X" is either that branch's own account or a shared account
+     * (branch_id IS NULL). Passing branch_id => null restricts to shared accounts only.
+     * Omitting the key keeps searching across every branch (legacy behavior).
+     *
+     * @param  array{query?: string, type?: string, level?: int, is_active?: bool, branch_id?: int|null} $filters
      * @return Collection<int, Account>
      */
     public function search(array $filters): Collection
@@ -197,30 +275,71 @@ class AccountService
             $query->where('is_active', $filters['is_active']);
         }
 
+        if (array_key_exists('branch_id', $filters)) {
+            $branchId = $filters['branch_id'];
+
+            if ($branchId === null) {
+                $query->whereNull('branch_id');
+            } else {
+                $query->where(function ($q) use ($branchId) {
+                    $q->where('branch_id', $branchId)->orWhereNull('branch_id');
+                });
+            }
+        }
+
         return $query->orderBy('code')->get();
     }
 
-    private function generateCode(?Account $parent): string
+    /**
+     * Generate the next account code under a parent.
+     *
+     * Only considers siblings that already match the expected code length for the
+     * new level, so shorter legacy/system codes (e.g. 110201 vs 1102000002) do not
+     * collapse the sequence back to a colliding code. When branch_id is set, the
+     * sequence is per (parent, branch) because uniqueness is (code, branch_id).
+     */
+    private function generateCode(?Account $parent, ?int $branchId = null): string
     {
         $codeLengths = config('accounting.account.code_length', [1, 2, 4, 6]);
 
         if ($parent === null) {
-            $lastCode = Account::whereNull('parent_id')
-                ->orderByDesc('code')
-                ->value('code');
+            $expectedLength = $codeLengths[0];
+            $query = Account::whereNull('parent_id')
+                ->whereRaw('LENGTH(code) = ?', [$expectedLength]);
 
+            if ($branchId !== null) {
+                $query->where('branch_id', $branchId);
+            }
+
+            $lastCode = $query->orderByDesc('code')->lockForUpdate()->value('code');
             $nextNumber = $lastCode ? ((int) $lastCode + 1) : 1;
 
-            return str_pad((string) $nextNumber, $codeLengths[0], '0', STR_PAD_LEFT);
+            return str_pad((string) $nextNumber, $expectedLength, '0', STR_PAD_LEFT);
         }
 
         $newLevel = $parent->level + 1;
         $parentCode = $parent->code;
         $expectedLength = $codeLengths[$newLevel] ?? ($codeLengths[count($codeLengths) - 1] + 2);
+        $suffixLength = $expectedLength - strlen($parentCode);
 
-        $lastChild = Account::where('parent_id', $parent->id)
-            ->orderByDesc('code')
-            ->first();
+        if ($suffixLength < 1) {
+            throw new InvalidAccountHierarchyException(
+                __('accounting::accounting.messages.account_level_exceeded', [
+                    'level' => $newLevel,
+                    'max' => AccountHierarchy::maxLevel(),
+                ])
+            );
+        }
+
+        $query = Account::where('parent_id', $parent->id)
+            ->whereRaw('LENGTH(code) = ?', [$expectedLength])
+            ->where('code', 'like', $parentCode . '%');
+
+        if ($branchId !== null) {
+            $query->where('branch_id', $branchId);
+        }
+
+        $lastChild = $query->orderByDesc('code')->lockForUpdate()->first();
 
         if ($lastChild) {
             $lastSuffix = substr($lastChild->code, strlen($parentCode));
@@ -229,7 +348,6 @@ class AccountService
             $nextNumber = 1;
         }
 
-        $suffixLength = $expectedLength - strlen($parentCode);
         $suffix = str_pad((string) $nextNumber, $suffixLength, '0', STR_PAD_LEFT);
 
         return $parentCode . $suffix;

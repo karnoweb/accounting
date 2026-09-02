@@ -17,6 +17,7 @@ use Karnoweb\Accounting\Models\Document;
 use Karnoweb\Accounting\Models\DocumentItem;
 use Karnoweb\Accounting\Models\DocumentNumberSequence;
 use Karnoweb\Accounting\Models\FiscalYear;
+use Karnoweb\Accounting\Support\BranchContext;
 use RuntimeException;
 
 class DocumentService
@@ -38,21 +39,20 @@ class DocumentService
 
             try {
                 return DB::transaction(function () use ($data, $manualNumber) {
+                    $branchId = array_key_exists('branch_id', $data)
+                        ? ($data['branch_id'] !== null ? (int) $data['branch_id'] : null)
+                        : $this->getDefaultBranchId();
+
                     $fiscalYear = $this->resolveFiscalYear($data);
                     $this->validateFiscalYear(
                         $fiscalYear,
                         $data['date'],
                         isset($data['type']) ? (string) $data['type'] : null,
-                        array_key_exists('branch_id', $data)
-                            ? ($data['branch_id'] !== null ? (int) $data['branch_id'] : null)
-                            : null
+                        $branchId
                     );
-                    $this->validateItems($data['items'] ?? []);
+                    $this->validateItems($data['items'] ?? [], $branchId);
                     $this->assertIdempotencyKeyAvailable($data['idempotency_key'] ?? null);
 
-                    $branchId = array_key_exists('branch_id', $data)
-                        ? $data['branch_id']
-                        : $this->getDefaultBranchId();
                     $number = $manualNumber
                         ? (int) $data['number']
                         : $this->allocateNextNumber($fiscalYear, $branchId);
@@ -138,6 +138,7 @@ class DocumentService
                 throw new InvalidArgumentException(__('accounting::accounting.validation.account_invalid'));
             }
             $this->accountService->assertPostable($account);
+            $this->assertAccountBranchMatches($account, $document->branch_id !== null ? (int) $document->branch_id : null);
         }
 
         return DB::transaction(function () use ($document) {
@@ -223,7 +224,7 @@ class DocumentService
         return 0;
     }
 
-    private function validateItems(array $items): void
+    private function validateItems(array $items, ?int $branchId = null): void
     {
         $minItems = config('accounting.document.min_items', 2);
 
@@ -239,6 +240,7 @@ class DocumentService
             }
 
             $this->accountService->assertPostable($account);
+            $this->assertAccountBranchMatches($account, $branchId);
         }
 
         $balance = 0;
@@ -302,16 +304,29 @@ class DocumentService
 
     private function getDefaultBranchId(): ?int
     {
-        if ( ! config('accounting.branch.enabled', true)) {
-            return null;
+        return BranchContext::resolveDefaultId();
+    }
+
+    /**
+     * Reject an item/line whose account belongs to a different, specific branch
+     * than the document. Either side being null (shared account, or a document
+     * with no branch) is allowed — only two concrete, differing branches are a
+     * cross-branch posting error.
+     */
+    private function assertAccountBranchMatches(Account $account, ?int $documentBranchId): void
+    {
+        if ($documentBranchId === null || $account->branch_id === null) {
+            return;
         }
 
-        $resolver = config('accounting.branch.resolver');
-        if ($resolver && is_callable($resolver)) {
-            return $resolver();
+        if ((int) $account->branch_id !== $documentBranchId) {
+            throw new InvalidArgumentException(
+                __('accounting::accounting.validation.account_branch_mismatch', [
+                    'account_branch' => $account->branch_id,
+                    'document_branch' => $documentBranchId,
+                ])
+            );
         }
-
-        return config('accounting.branch.default_id');
     }
 
     private function currentUserId(): ?int

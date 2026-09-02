@@ -57,11 +57,12 @@ trait HasAccount
         $accountService = app(AccountService::class);
 
         $parentCode = $config['parent_code'] ?? null;
-        $parent = $parentCode ? $accountService->findByCode($parentCode) : null;
+        $branchId = $config['branch_id'] ?? null;
+        $parent = $parentCode ? $accountService->findByCode($parentCode, $branchId) : null;
 
         $account = $accountService->create([
             'parent_id' => $parent?->id,
-            'branch_id' => $config['branch_id'] ?? null,
+            'branch_id' => $branchId,
             'code' => $config['code'] ?? null,
             'title' => $config['title'] ?? $this->getAccountTitle(),
             'description' => $config['description'] ?? null,
