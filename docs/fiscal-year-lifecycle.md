@@ -1,6 +1,6 @@
 # Fiscal Year Lifecycle
 
-Package version: **13.3.0**
+Package version: **13.5.0**
 
 This document describes the fiscal-year lifecycle implemented by `FiscalYearService`.
 It matches the code. Features listed under [Not implemented](#not-implemented) are intentionally absent.
@@ -42,16 +42,66 @@ Manual opening and carry-forward live on `OpeningService`. P&L close lives on `C
 | From | Operation | To | Notes |
 |------|-----------|----|--------|
 | — | `create()` | `draft` | `is_current = false`, `opening_done = false` |
-| `draft` | `update()` | `draft` | title and dates; dates re-check overlap |
+| `draft` | `update()` | `draft` | title, `start_date`, `end_date` (only while the year has zero documents); dates re-check overlap |
 | `draft` | `activate()` | `active` | sets `is_current`, `opened_at`; refuses if another FY is already `active` |
 | `active` | `activate()` | `active` | idempotent; does not reset `opened_at` |
-| `active` | `update()` | `active` | **title only**; date range is locked |
+| `active` | `update()` | `active` | title and **`end_date` only** (`>= start_date`, `>= latestDocumentDate()`); `start_date` is locked once active |
 | `active` | `completeOpening()` | `active` | sets `opening_done = true`; idempotent if already true; no journals |
 | `active` | `revertOpening()` | `active` | sets `opening_done = false` only if no posted `type=opening` document remains; idempotent if already false |
 | `active` | `close()` | `closed` | after `validateCanClose()`; sets `closed_at`, clears `is_current` |
 | `closed` | anything mutating | — | rejected (`FiscalYearStateException`) |
 
 Closed years **cannot be reopened**. There is no `reopen()` method. Calling `activate()` on a closed year throws `FiscalYearStateException`.
+
+---
+
+## `update()` date rules (13.5.0+)
+
+Prior to 13.5.0, `update()` locked the **entire** date range the moment a year became
+`active` or acquired a document. That blanket lock is gone. The seeded-year workflow
+(one fiscal year spanning ~100 years, posted into silently, then later split into
+real years) needs `end_date` to shrink on an `active` year without going through
+`close()` first. `start_date` stays locked once real data exists, because it defines
+where every existing document's "period" begins.
+
+**`start_date`**
+
+- Editable only when `status = draft` **and** the year has zero documents
+  (`hasDocuments()` — any status, not just posted).
+- `active` years, or any year that already has a document, reject a `start_date`
+  change with `fiscal_year_start_date_locked`.
+- Closed years already reject *any* field change (see above) before this rule is
+  even reached.
+
+**`end_date`**
+
+- Editable while `status` is `draft` **or** `active`. Closed years still reject it.
+- Must stay `>= start_date` (`fiscal_year_invalid_dates` otherwise — same check as `create()`).
+- Must stay `>= latestDocumentDate($fiscalYear)` — the greatest `documents.date` for
+  this fiscal year, across **all** document statuses, not just `posted`. A year with
+  zero documents has no floor beyond `start_date`. Violating this throws
+  `FiscalYearStateException` (`fiscal_year_end_date_before_documents`, with the
+  offending `:date` interpolated).
+- Still re-checked against `assertNoOverlap()` (unchanged) once the new range is known.
+- There is **no** "`end_date` must be `>= today`" rule. Shortening `end_date` below
+  today without a consecutive next fiscal year simply means `PostingService` will
+  correctly refuse dates past the new `end_date` (`date_out_of_fiscal_year`) — that
+  gate already existed and is not duplicated here.
+
+**Helpers**
+
+```php
+$fiscalYearService->latestDocumentDate($fiscalYear): ?string   // null when the year has no documents
+$fiscalYearService->minAllowedEndDate($fiscalYear): string     // max(start_date, latestDocumentDate())
+```
+
+Both are also exposed as read-only model accessors: `$fiscalYear->latest_document_date`
+and `$fiscalYear->min_allowed_end_date`. Consumers (e.g. a UI date picker's `min`
+attribute) should call `minAllowedEndDate()` instead of re-deriving the same query.
+
+This is exactly the rule set behind the "keep the same FY, shorten `end_date`" half of
+the draft→confirm opening flow described below — the seeded FY is never renamed via
+`start_date`; only `end_date` moves to close the gap once real years start.
 
 ---
 
@@ -206,24 +256,94 @@ Inside a DB transaction, with the same row locks as `activate()` / `close()` (`l
 
 ---
 
-## Manual opening (`OpeningService`)
+## Manual opening (`OpeningService`) — draft → confirm (13.5.0+)
 
-`Accounting::opening()->post($fy, $items, $branchId = null)` posts one `type=opening` document through `DocumentService` and then sets `opening_done`.
+Opening a fiscal year is now a two-step, per-(fiscal year, branch)-bucket flow:
 
-- Target must be **active**. Draft → `FiscalYearStateException`. Closed → `ClosedFiscalYearException`.
-- Date is always the fiscal year `start_date`.
+```php
+$draft = Accounting::opening()->saveDraft($fy, $items, $branchId = null);   // type=opening, status=draft
+$posted = Accounting::opening()->confirm($fy, $branchId = null);            // draft -> posted, in place
+$opening = Accounting::opening()->find($fy, $branchId = null);              // draft OR posted, or null
+```
+
+**`saveDraft($target, $items, $branchId = null)`**
+
+- Creates (or, on a second call for the same bucket, **replaces in place** — same
+  document id, same idempotency key) a `type=opening, status=draft` document.
 - Lines must be postable **permanent** accounts (asset / liability / equity). Income and expense are refused.
+- **MAY be unbalanced.** Balance is enforced only by `confirm()`, not here — this is
+  what lets a user build up an opening across several edits before posting it.
+- Does **not** set `opening_done` and does **not** check for posted operational
+  documents (that stays on `confirm()`, so a draft can be prepared before cutover).
+- Target must accept opening (`active`, not `closed`), same as before.
+- If a **posted** opening already exists for this exact bucket, `saveDraft()` refuses
+  (`opening_bucket_already_posted`) — void the posted opening first.
+
+**`confirm($target, $branchId = null)`**
+
+- Posts the draft for this bucket **in place** (`status: draft → posted`) — never a
+  second document with the same idempotency key.
+- Requires balance: `UnbalancedDocumentException` if the draft's items do not sum to
+  zero (same tolerance as any other document).
+- Requires no posted operational (non-opening) document in the target year yet
+  (`opening_has_posted_activity`) — same rule `post()` always enforced, just deferred
+  to this step instead of `saveDraft()`.
+- Rejects if no draft (or matching posted) document exists for the bucket
+  (`opening_no_draft`) — call `saveDraft()` first.
+- Idempotent: confirming an already-posted bucket returns it unchanged.
+- After posting, sets `opening_done = true` **once no `type=opening, status=draft`
+  document remains for the fiscal year** — i.e. once every bucket that got a draft
+  has been confirmed (or none needed one). A multi-branch year with some buckets
+  still draft keeps `opening_done = false` until the last one is confirmed.
+
+**`find($target, $branchId = null)`**: the draft or posted opening for that bucket, or `null`.
+
+**`post($target, $items, $branchId = null)`** — kept as a one-shot convenience,
+implemented as `saveDraft()` + `confirm()` in one transaction. Existing callers
+(e.g. Matrix's `PostOpeningBalanceAction`) do not need to change. Idempotent replay
+is preserved: a call matching an already-posted bucket returns it unchanged without
+re-validating items.
+
+- Date is always the fiscal year `start_date`.
 - `branch_id` is always sent explicitly, including `null`.
-- Idempotency key: `opening:{fyId}:branch:{id|none}`. A second call for the same FY+branch returns the existing posted document.
-- Posted operational (non-opening) documents in the target year refuse opening.
-- `isComplete($fy)` is `opening_done`, not “a journal row exists”.
-- Voiding a posted opening (active FY) releases its idempotency key in the same `POSTED → VOIDED` write. Retry with the same deterministic key is allowed after the last posted opening is gone (`opening_done` becomes false).
+- Idempotency key (shared by the draft and the posted document): `opening:{fyId}:branch:{id|none}`.
+- Voiding a posted opening (active FY) releases its idempotency key in the same `POSTED → VOIDED` write. Retry with the same deterministic key (via `saveDraft()`/`post()`) is allowed after the last posted opening is gone (`opening_done` becomes false).
 
 ---
 
 ## Carry-forward (`OpeningService::carryForward`)
 
 `Accounting::opening()->carryForward($source, $target)` copies **posted permanent** balances from a **closed** source year into the immediately following **active** target year.
+
+**13.5.0+: produces DRAFT openings, not posted ones.** `carryForward()` computes one
+plan per source `documents.branch_id` bucket and calls `saveDraft()` for each —
+it never posts and never sets `opening_done` by itself, **except**:
+
+- A bucket whose idempotency key already resolves to a **posted** document matching
+  the recomputed plan is left untouched and returned as-is (this is what makes
+  crash-recovery / repeat calls safe — see below).
+- If, after processing every bucket, all returned documents are already `posted`
+  (i.e. nothing needed a fresh draft), `completeOpening()` runs — the same outcome as
+  before 13.5.0 for a fully-idle re-run.
+- Otherwise (the normal first run), every bucket is a fresh or replaced **draft**.
+  `opening_done` stays `false`. The caller must `confirm()` each bucket — per branch,
+  as each one is reviewed — before the year is considered opened:
+
+```php
+$drafts = Accounting::opening()->carryForward($source, $target);   // all draft
+foreach ($drafts as $draft) {
+    // review / edit via saveDraft($target, $editedItems, $draft->branch_id) if needed
+    Accounting::opening()->confirm($target, $draft->branch_id);    // posts this bucket
+}
+// opening_done becomes true once the last draft bucket is confirmed
+```
+
+A **partially-confirmed** target (some buckets posted, others still draft) is now a
+normal, expected state — re-running `carryForward()` on it succeeds: already-posted
+matching buckets are left alone, remaining buckets get drafts. Only a **mismatched**
+posted bucket (wrong items for that key) is still a hard error
+(`opening_inconsistent_state`) — that is genuine data corruption, not a
+work-in-progress state.
 
 Required caller sequence (the package does **not** auto-create the next year):
 
@@ -246,11 +366,20 @@ Rules:
 - One opening document per source `documents.branch_id` bucket. **`NULL` is a real bucket** and is not merged with the configured default branch.
 - Each branch document must balance on its own. If that branch’s temporary residual has `abs(R) >= 0.01`, the **entire** carry-forward fails (no retained earnings, no equity plug, no closing journal).
 - A material permanent balance on a non-postable account fails the entire operation.
-- Canonical path: `DocumentService::create()` + `post()` for each non-empty bucket, then `completeOpening($target)` **once**. Does **not** call `OpeningService::post()` (that would set `opening_done` after the first branch).
+- Canonical path per non-empty bucket: `OpeningService::saveDraft()` (creates or
+  replaces the draft in place). Nothing is posted here. `completeOpening($target)`
+  only runs if every returned document already happens to be `posted` (see above) —
+  the normal path leaves that to `confirm()`, called once per bucket by the caller.
 - Document: `type=opening`, `date=target.start_date`, `branch_id` always present (including `null`), `idempotency_key=opening:{targetId}:branch:{id|none}`, `meta.source_fiscal_year_id` and `meta.operation=carry_forward`.
-- Empty source (no material permanents, residual ~0): **no document**, then `completeOpening()`; returns `[]`. `opening_done` is still true.
-- Repeat with matching posted openings is idempotent. `opening_done` plus mismatched openings fails; it is not auto-repaired. Partial posted openings while `opening_done` is false also fail.
-- FY-scoped reports: the opening journal on `start_date` is **period** activity for a full-year query; it contributes to opening only when `from > start_date`. Prior years do not leak into FY-scoped opening.
+- Empty source (no material permanents, residual ~0): **no document**; `completeOpening()` runs immediately (nothing to confirm); returns `[]`. `opening_done` is still true.
+- Repeat calls are idempotent whether buckets are still draft (items are simply
+  replaced in place, same document id) or already posted-and-matching (left as-is).
+  A **mismatched** posted bucket still fails the whole call
+  (`opening_inconsistent_state`); it is not auto-repaired.
+- FY-scoped reports only see a bucket once it is **posted** (via `confirm()`); a
+  draft opening has no ledger effect. Once posted, the opening journal on
+  `start_date` is **period** activity for a full-year query; it contributes to
+  opening only when `from > start_date`. Prior years do not leak into FY-scoped opening.
 
 Carry-forward still refuses a material temporary residual. Run `ClosingService::closeProfitAndLoss()` on the **active** source year first so that residual is ~0.
 

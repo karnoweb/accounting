@@ -16,7 +16,7 @@
             "email": "info@karnoweb.com"
         }
     ],
-    "version": "13.4.3",
+    "version": "13.5.0",
     "require": {
         "php": "^8.3",
         "illuminate/support": "^13.0",

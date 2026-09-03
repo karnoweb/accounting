@@ -96,6 +96,16 @@ class FiscalYearService
     /**
      * Update configuration fields. Status transitions must use activate()/close().
      *
+     * Date rules (closed years already rejected above):
+     * - `start_date` is editable only while `draft` AND the year has zero documents.
+     *   Active years, or any year (draft or active) that already has documents, reject
+     *   a `start_date` change (`fiscal_year_start_date_locked`).
+     * - `end_date` is editable while `draft` or `active`. It must stay `>= start_date`
+     *   and `>= latestDocumentDate()` (the latest `documents.date` for this year, any
+     *   status). There is no “must be `>= today`” rule — posting coverage for dates
+     *   beyond `end_date` is `PostingService`'s concern, not `update()`'s.
+     * - Overlap is always re-checked against the resulting range.
+     *
      * @param  array{title?: string, start_date?: string|\DateTimeInterface, end_date?: string|\DateTimeInterface}  $data
      */
     public function update(FiscalYear|int $fiscalYear, array $data): FiscalYear
@@ -119,29 +129,36 @@ class FiscalYearService
                 $changes['title'] = $this->normalizeTitle($data['title']);
             }
 
-            $datesChanging = array_key_exists('start_date', $data) || array_key_exists('end_date', $data);
+            $startChanging = array_key_exists('start_date', $data);
+            $endChanging = array_key_exists('end_date', $data);
 
-            if ($datesChanging) {
-                if ($fiscalYear->isActive()) {
+            if ($startChanging || $endChanging) {
+                if ($startChanging && ($fiscalYear->isActive() || $this->hasDocuments($fiscalYear))) {
                     throw new FiscalYearStateException(
                         $fiscalYear,
-                        __('accounting::accounting.messages.fiscal_year_dates_locked')
+                        __('accounting::accounting.messages.fiscal_year_start_date_locked')
                     );
                 }
 
-                if ($this->hasDocuments($fiscalYear)) {
-                    throw new FiscalYearStateException(
-                        $fiscalYear,
-                        __('accounting::accounting.messages.fiscal_year_dates_locked')
-                    );
-                }
-
-                $start = array_key_exists('start_date', $data)
+                $start = $startChanging
                     ? $this->normalizeDate($data['start_date'], 'start_date')
                     : Carbon::parse($fiscalYear->start_date)->toDateString();
-                $end = array_key_exists('end_date', $data)
+                $end = $endChanging
                     ? $this->normalizeDate($data['end_date'], 'end_date')
                     : Carbon::parse($fiscalYear->end_date)->toDateString();
+
+                if ($endChanging) {
+                    $latestDocumentDate = $this->latestDocumentDate($fiscalYear);
+
+                    if ($latestDocumentDate !== null && $end < $latestDocumentDate) {
+                        throw new FiscalYearStateException(
+                            $fiscalYear,
+                            __('accounting::accounting.messages.fiscal_year_end_date_before_documents', [
+                                'date' => $latestDocumentDate,
+                            ])
+                        );
+                    }
+                }
 
                 $this->assertDateOrder($start, $end);
                 $this->assertNoOverlap($start, $end, $fiscalYear->id);
@@ -157,6 +174,33 @@ class FiscalYearService
 
             return $fiscalYear->fresh();
         });
+    }
+
+    /**
+     * Latest `documents.date` (any status) posted/created against this fiscal year, or
+     * null when the year has zero documents. Used to gate `end_date` shortening.
+     */
+    public function latestDocumentDate(FiscalYear $fiscalYear): ?string
+    {
+        $max = Document::query()->where('fiscal_year_id', $fiscalYear->id)->max('date');
+
+        return $max !== null ? Carbon::parse($max)->toDateString() : null;
+    }
+
+    /**
+     * Smallest `end_date` `update()` would currently accept for this fiscal year:
+     * the later of `start_date` and `latestDocumentDate()`.
+     */
+    public function minAllowedEndDate(FiscalYear $fiscalYear): string
+    {
+        $start = Carbon::parse($fiscalYear->start_date)->toDateString();
+        $latestDocumentDate = $this->latestDocumentDate($fiscalYear);
+
+        if ($latestDocumentDate === null) {
+            return $start;
+        }
+
+        return $latestDocumentDate > $start ? $latestDocumentDate : $start;
     }
 
     /**

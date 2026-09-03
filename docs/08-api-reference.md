@@ -131,7 +131,7 @@ use Karnoweb\Accounting\Facades\Accounting;
 | `current()` | سال مالی جاری |
 | `findByDate(string $date)` | یافتن سال بر اساس تاریخ |
 | `create(array $data)` | ایجاد draft |
-| `update(FiscalYear|int $fiscalYear, array $data)` | ویرایش |
+| `update(FiscalYear|int $fiscalYear, array $data)` | ویرایش؛ از ۱۳.۵.۰: `start_date` فقط در `draft` بدون سند، `end_date` در `draft`/`active` تا `>= latestDocumentDate()` |
 | `activate(FiscalYear|int $fiscalYear)` | فعال‌سازی |
 | `validateCanClose(FiscalYear|int $fiscalYear)` | پیش‌بررسی بستن |
 | `close(FiscalYear|int $fiscalYear)` | بستن سال |
@@ -139,6 +139,8 @@ use Karnoweb\Accounting\Facades\Accounting;
 | `revertOpening(FiscalYear|int $fiscalYear)` | برگشت فلگ افتتاحیه |
 | `assertAcceptsPosting(FiscalYear $fiscalYear, string $date)` | primitive داخلی ثبت |
 | `assertNoOverlap(string $startDate, string $endDate, ?int $exceptId = null)` | کنترل هم‌پوشانی |
+| `latestDocumentDate(FiscalYear $fiscalYear)` | `?string` — آخرین `documents.date` (هر وضعیتی) این سال، یا `null` |
+| `minAllowedEndDate(FiscalYear $fiscalYear)` | `string` — کمترین `end_date` قابل قبول (`max(start_date, latestDocumentDate())`) |
 
 ## `PostingService`
 
@@ -150,11 +152,16 @@ use Karnoweb\Accounting\Facades\Accounting;
 
 ## `OpeningService`
 
+از ۱۳.۵.۰ افتتاحیه دو مرحله‌ای است: `saveDraft()` یک سند `type=opening, status=draft` (احتمالاً نامتوازن) می‌سازد؛ `confirm()` همان سند را در جا به `posted` تبدیل می‌کند (تعادل و عدم وجود سند عملیاتی ثبت‌شده را در همین مرحله بررسی می‌کند) و `opening_done` را وقتی هیچ افتتاحیه‌ی draft دیگری برای سال باقی نماند، `true` می‌کند.
+
 | متد | شرح |
 |-----|-----|
 | `isComplete(FiscalYear|int $fiscalYear)` | وضعیت `opening_done` |
-| `post(FiscalYear|int $target, array $items, ?int $branchId = null)` | ثبت افتتاحیه دستی |
-| `carryForward(FiscalYear|int $source, FiscalYear|int $target)` | انتقال مانده سال بسته |
+| `saveDraft(FiscalYear|int $target, array $items, ?int $branchId = null)` | ایجاد/جای‌گزینی افتتاحیهٔ `draft` این باکت (سال مالی + شعبه)؛ ممکن است نامتوازن باشد |
+| `confirm(FiscalYear|int $target, ?int $branchId = null)` | ثبت قطعی افتتاحیهٔ `draft` همان باکت (نیازمند تعادل) |
+| `find(FiscalYear|int $target, ?int $branchId = null)` | افتتاحیهٔ `draft` یا `posted` این باکت، یا `null` |
+| `post(FiscalYear|int $target, array $items, ?int $branchId = null)` | یک‌مرحله‌ای (سازگاری قدیم) — معادل `saveDraft()` + `confirm()` |
+| `carryForward(FiscalYear|int $source, FiscalYear|int $target)` | ساخت/به‌روزرسانی افتتاحیه‌های `draft` از سال بسته؛ `confirm()` هر باکت را جدا قطعی می‌کند |
 
 ## `ClosingService`
 

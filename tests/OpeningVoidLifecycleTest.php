@@ -113,6 +113,20 @@ class OpeningVoidLifecycleTest extends TestCase
         $this->assertSame(DocumentStatus::VOIDED, $first->fresh()->status);
     }
 
+    /**
+     * carryForward() only produces DRAFT openings; confirm() posts each bucket in
+     * place. Helper to confirm every draft returned by carryForward() in this suite.
+     *
+     * @param  list<Document>  $drafts
+     * @return \Illuminate\Support\Collection<int, Document> keyed by (int) branch_id
+     */
+    private function confirmDrafts(FiscalYear $target, array $drafts): \Illuminate\Support\Collection
+    {
+        return collect($drafts)
+            ->map(fn (Document $draft) => $this->opening()->confirm($target, $draft->branch_id))
+            ->keyBy(fn (Document $document) => (int) $document->branch_id);
+    }
+
     public function test_void_single_branch_carry_forward_then_retry(): void
     {
         $source = $this->activateYear('FY 2025', '2025-01-01', '2025-12-31');
@@ -121,22 +135,26 @@ class OpeningVoidLifecycleTest extends TestCase
         $source = $this->years()->close($source);
         $target = $this->activateYear('FY 2026', '2026-01-01', '2026-12-31');
 
-        $first = $this->opening()->carryForward($source, $target);
-        $this->assertCount(1, $first);
-        $this->assertTrue($target->fresh()->opening_done);
-        $this->assertOpeningContract($first[0], $target, null);
-        $this->assertSame($source->id, $first[0]->meta['source_fiscal_year_id']);
-        $this->assertSame('carry_forward', $first[0]->meta['operation']);
+        $firstDrafts = $this->opening()->carryForward($source, $target);
+        $this->assertCount(1, $firstDrafts);
+        $this->assertFalse($target->fresh()->opening_done);
 
-        $first[0]->void('redo');
+        $first = $this->opening()->confirm($target, $firstDrafts[0]->branch_id);
+        $this->assertTrue($target->fresh()->opening_done);
+        $this->assertOpeningContract($first, $target, null);
+        $this->assertSame($source->id, $first->meta['source_fiscal_year_id']);
+        $this->assertSame('carry_forward', $first->meta['operation']);
+
+        $first->void('redo');
         $this->assertFalse($target->fresh()->opening_done);
         $this->assertKeyFree('opening:'.$target->id.':branch:none');
 
-        $second = $this->opening()->carryForward($source, $target);
-        $this->assertCount(1, $second);
-        $this->assertOpeningContract($second[0], $target, null);
-        $this->assertSame($source->id, $second[0]->meta['source_fiscal_year_id']);
-        $this->assertSame('carry_forward', $second[0]->meta['operation']);
+        $secondDrafts = $this->opening()->carryForward($source, $target);
+        $this->assertCount(1, $secondDrafts);
+        $second = $this->opening()->confirm($target, $secondDrafts[0]->branch_id);
+        $this->assertOpeningContract($second, $target, null);
+        $this->assertSame($source->id, $second->meta['source_fiscal_year_id']);
+        $this->assertSame('carry_forward', $second->meta['operation']);
         $this->assertTrue($target->fresh()->opening_done);
     }
 
@@ -149,8 +167,10 @@ class OpeningVoidLifecycleTest extends TestCase
         $source = $this->years()->close($source);
         $target = $this->activateYear('FY 2026', '2026-01-01', '2026-12-31');
 
-        $openings = collect($this->opening()->carryForward($source, $target))
-            ->keyBy(fn (Document $document) => (int) $document->branch_id);
+        $drafts = $this->opening()->carryForward($source, $target);
+        $this->assertFalse($target->fresh()->opening_done);
+
+        $openings = $this->confirmDrafts($target, $drafts);
         $this->assertTrue($target->fresh()->opening_done);
 
         $openings[1]->void('branch-1');
@@ -173,13 +193,15 @@ class OpeningVoidLifecycleTest extends TestCase
         $source = $this->years()->close($source);
         $target = $this->activateYear('FY 2026', '2026-01-01', '2026-12-31');
 
-        foreach ($this->opening()->carryForward($source, $target) as $document) {
+        $drafts = $this->opening()->carryForward($source, $target);
+        $openings = $this->confirmDrafts($target, $drafts);
+        foreach ($openings as $document) {
             $document->void('reset');
         }
         $this->assertFalse($target->fresh()->opening_done);
 
-        $recreated = collect($this->opening()->carryForward($source, $target))
-            ->keyBy(fn (Document $document) => (int) $document->branch_id);
+        $recreatedDrafts = $this->opening()->carryForward($source, $target);
+        $recreated = $this->confirmDrafts($target, $recreatedDrafts);
 
         $this->assertCount(2, $recreated);
         $this->assertOpeningContract($recreated[1], $target, 1);
@@ -303,8 +325,8 @@ class OpeningVoidLifecycleTest extends TestCase
         $source = $this->years()->close($source);
         $target = $this->activateYear('FY 2026', '2026-01-01', '2026-12-31');
 
-        $openings = collect($this->opening()->carryForward($source, $target))
-            ->keyBy(fn (Document $document) => (int) $document->branch_id);
+        $drafts = $this->opening()->carryForward($source, $target);
+        $openings = $this->confirmDrafts($target, $drafts);
 
         $openings[2]->void('branch-2-only');
 

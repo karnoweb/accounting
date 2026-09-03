@@ -1,5 +1,90 @@
 # Changelog
 
+## [13.5.0] - 2026-09-03
+
+### Changed
+
+- **`FiscalYearService::update()` date rules relaxed.** Replaces the old blanket lock
+  ("any date change on an `active` year, or any year with documents, throws
+  `fiscal_year_dates_locked`") with rules that let a seeded, decades-spanning fiscal
+  year be split into real years without going through `close()` first:
+  - `start_date` is now editable **only** while `status = draft` **and** the year has
+    zero documents. `active` years, or any year that already has a document, reject a
+    `start_date` change (new message `fiscal_year_start_date_locked`).
+  - `end_date` is now editable while `status` is `draft` **or** `active` (closed years
+    still reject any date mutation, unchanged). It must stay `>= start_date` and
+    `>= latestDocumentDate($fiscalYear)` — the greatest `documents.date` for that
+    fiscal year across all document statuses, not just posted (new message
+    `fiscal_year_end_date_before_documents`, interpolated with the offending date).
+    Overlap is still re-checked (`assertNoOverlap()`), unchanged.
+  - There is intentionally **no** "`end_date >= today`" rule — shortening `end_date`
+    below today without a consecutive next fiscal year is still safe:
+    `PostingService` already refuses documents dated past `end_date`
+    (`date_out_of_fiscal_year`).
+  - New public helpers: `FiscalYearService::latestDocumentDate(FiscalYear): ?string`
+    and `FiscalYearService::minAllowedEndDate(FiscalYear): string`
+    (`max(start_date, latestDocumentDate())`), also exposed as read-only model
+    accessors `$fiscalYear->latest_document_date` / `$fiscalYear->min_allowed_end_date`.
+
+- **`OpeningService`: draft → confirm opening flow.** An opening for a (fiscal year,
+  branch) bucket now goes through an explicit draft stage instead of being posted in
+  one call, so a silently-seeded fiscal year's accounting UI can unlock later without
+  forcing an immediate, balanced opening:
+  - New `saveDraft(FiscalYear|int $target, array $items, ?int $branchId = null): Document`
+    — creates (or, on a second call for the same bucket, **replaces in place**, same
+    document id and idempotency key) a `type=opening, status=draft` document. Lines
+    are still restricted to postable permanent accounts, but the draft **may be
+    unbalanced** — balance is enforced only by `confirm()`. Does not set
+    `opening_done` and does not check for posted operational documents (deferred to
+    `confirm()`). Refuses (`opening_bucket_already_posted`) if a posted opening
+    already exists for the bucket.
+  - New `confirm(FiscalYear|int $target, ?int $branchId = null): Document` — posts the
+    bucket's draft **in place** (`draft → posted`, same idempotency key, never a
+    second document). Requires balance (`UnbalancedDocumentException` otherwise) and
+    no posted operational document yet (`opening_has_posted_activity`). Rejects
+    (`opening_no_draft`) if no draft/matching document exists for the bucket.
+    Idempotent on an already-posted bucket. Sets `opening_done = true` once no
+    `type=opening, status=draft` document remains for the fiscal year — i.e. once
+    every bucket that needed a draft has been confirmed.
+  - New `find(FiscalYear|int $target, ?int $branchId = null): ?Document` — the draft
+    or posted opening for that bucket, or `null`.
+  - `post(FiscalYear|int $target, array $items, ?int $branchId = null): Document` is
+    kept as a one-shot convenience, now implemented as `saveDraft()` + `confirm()` in
+    one transaction, for existing callers (e.g. Matrix's `PostOpeningBalanceAction`).
+    Idempotent replay behavior is unchanged.
+  - `carryForward(source, target)` now creates/refreshes **draft** openings (one
+    `saveDraft()` per non-empty source branch bucket) instead of posting them
+    directly, and no longer sets `opening_done` by itself — the caller must
+    `confirm()` each bucket. Exceptions:
+    - A bucket whose idempotency key already resolves to a **posted** document
+      matching the recomputed plan is left untouched and returned as-is (keeps
+      crash-recovery / idle-repeat calls safe).
+    - If every returned document already happens to be posted (nothing needed a
+      fresh draft), `completeOpening()` still runs immediately.
+  - A **partially-confirmed** target (some branch buckets posted, others still draft)
+    is now a normal, expected state; re-running `carryForward()` on it succeeds
+    instead of throwing. Only a **mismatched** posted bucket (wrong items for that
+    key) remains a hard error (`opening_inconsistent_state`).
+  - `DocumentService::create()` / `validateItems()` gained an internal
+    `balance_required` (data key) / `$requireBalance` parameter (default `true`,
+    fully backward compatible) so a draft opening's items can be persisted without
+    tripping the existing strict-balance check.
+
+### Added
+
+- Lang keys (`lang/en`, `lang/fa`): `fiscal_year_start_date_locked`,
+  `fiscal_year_end_date_before_documents`, `opening_bucket_already_posted`,
+  `opening_no_draft`.
+
+### Docs
+
+- `docs/fiscal-year-lifecycle.md`: documented the new `update()` date rules, the
+  draft → confirm opening flow, and the updated `carryForward()` contract.
+- `docs/02-concepts.md`: rewrote the "افتتاحیه" (opening) section for the
+  draft → confirm flow.
+- `docs/08-api-reference.md`: updated the `FiscalYearService` and `OpeningService`
+  method tables.
+
 ## [13.4.3] - 2026-09-02
 
 ### Fixed

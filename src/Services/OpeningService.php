@@ -5,21 +5,29 @@ declare(strict_types=1);
 namespace Karnoweb\Accounting\Services;
 
 use Carbon\Carbon;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Karnoweb\Accounting\Enums\DocumentStatus;
 use Karnoweb\Accounting\Exceptions\ClosedFiscalYearException;
 use Karnoweb\Accounting\Exceptions\DuplicateIdempotencyKeyException;
 use Karnoweb\Accounting\Exceptions\FiscalYearStateException;
-use Karnoweb\Accounting\Exceptions\UnbalancedDocumentException;
 use Karnoweb\Accounting\Models\Account;
 use Karnoweb\Accounting\Models\Document;
+use Karnoweb\Accounting\Models\DocumentItem;
 use Karnoweb\Accounting\Models\FiscalYear;
 use Karnoweb\Accounting\Reporting\LedgerQuery;
 
 /**
- * Opening journals: manual post() or carryForward() from a closed source year.
+ * Opening journals: draft → confirm (or one-shot post()), and carryForward() from a
+ * closed source year.
+ *
+ * The opening for a (fiscal year, branch bucket) starts as `type=opening, status=draft`
+ * via saveDraft(). A draft MAY be unbalanced — balance is enforced only when confirm()
+ * posts it. `opening_done` is never set by saveDraft(); confirm() sets it once no
+ * draft opening remains for the fiscal year (see maybeCompleteOpening()).
+ *
+ * post() remains a one-shot convenience for existing callers: saveDraft() + confirm()
+ * inside one transaction, with the same idempotent-replay behavior it always had.
  *
  * Canonical path is DocumentService::create() / post(), then FiscalYearService::completeOpening().
  */
@@ -39,7 +47,146 @@ class OpeningService
     }
 
     /**
-     * Post a balanced permanent-account opening for one branch (null is its own bucket).
+     * Create or replace the DRAFT opening for one (fiscal year, branch) bucket.
+     *
+     * - `type=opening`, `status=draft`.
+     * - Idempotency key: `opening:{fyId}:branch:{id|none}` (same key confirm() posts in place).
+     * - Lines must be permanent (asset/liability/equity) accounts; income/expense are refused.
+     * - MAY be unbalanced — balance is enforced by confirm(), not here.
+     * - Does not set `opening_done` and does not check operational activity (confirm() does).
+     * - A posted opening already existing for this bucket is rejected — void it first.
+     * - If a draft already exists for this bucket, its items are replaced in place
+     *   (same document id, same idempotency key) and returned.
+     *
+     * @param  list<array{account_id: int, amount: float, sign: int, description?: ?string}>  $items
+     */
+    public function saveDraft(FiscalYear|int $target, array $items, ?int $branchId = null): Document
+    {
+        return DB::transaction(function () use ($target, $items, $branchId) {
+            $this->lockAllFiscalYears();
+            $target = $this->lockFiscalYear($target);
+            $this->assertTargetAcceptsOpening($target);
+            $this->lockPostedDocuments($target);
+
+            $normalizedItems = $this->normalizeItems($items);
+            $this->assertMinItems($normalizedItems);
+
+            $key = $this->idempotencyKey($target, $branchId);
+            $existing = Document::query()
+                ->where('idempotency_key', $key)
+                ->lockForUpdate()
+                ->first();
+
+            if ($existing) {
+                if ($existing->isPosted()) {
+                    throw new FiscalYearStateException(
+                        $target,
+                        __('accounting::accounting.messages.opening_bucket_already_posted')
+                    );
+                }
+
+                if ($existing->type !== 'opening' || $existing->status !== DocumentStatus::DRAFT) {
+                    throw new DuplicateIdempotencyKeyException((string) $existing->idempotency_key);
+                }
+
+                $this->replaceItems($existing, $normalizedItems);
+
+                return $existing->fresh()->load('items.account');
+            }
+
+            return $this->documentService->create([
+                'type' => 'opening',
+                'date' => $target->start_date->toDateString(),
+                'fiscal_year_id' => $target->id,
+                'branch_id' => $branchId,
+                'status' => DocumentStatus::DRAFT,
+                'idempotency_key' => $key,
+                'items' => $normalizedItems,
+                'balance_required' => false,
+            ]);
+        });
+    }
+
+    /**
+     * Post the draft opening for one (fiscal year, branch) bucket in place
+     * (`status: draft → posted`, same document id and idempotency key).
+     *
+     * - Rejects if no draft (or posted-but-mismatched) document exists for the bucket.
+     * - Requires balance (`UnbalancedDocumentException` if not, same as any other post()).
+     * - Requires no posted operational (non-opening) document in the target year yet.
+     * - Already-posted for this bucket: idempotent replay, returns the posted document.
+     * - After posting, sets `opening_done` once no draft opening remains for the year
+     *   (see maybeCompleteOpening()) — the year need not have only one bucket.
+     */
+    public function confirm(FiscalYear|int $target, ?int $branchId = null): Document
+    {
+        return DB::transaction(function () use ($target, $branchId) {
+            $this->lockAllFiscalYears();
+            $target = $this->lockFiscalYear($target);
+            $this->assertTargetAcceptsOpening($target);
+            $this->lockPostedDocuments($target);
+            $this->lockDraftOpeningDocuments($target);
+
+            $key = $this->idempotencyKey($target, $branchId);
+            $document = Document::query()
+                ->where('idempotency_key', $key)
+                ->where('type', 'opening')
+                ->lockForUpdate()
+                ->first();
+
+            if ( ! $document) {
+                throw new FiscalYearStateException(
+                    $target,
+                    __('accounting::accounting.messages.opening_no_draft')
+                );
+            }
+
+            if ($document->isPosted()) {
+                $this->maybeCompleteOpening($target);
+
+                return $document->load('items.account');
+            }
+
+            if ($document->status !== DocumentStatus::DRAFT) {
+                throw new FiscalYearStateException(
+                    $target,
+                    __('accounting::accounting.messages.opening_no_draft')
+                );
+            }
+
+            $this->assertNoPostedOperationalDocuments($target);
+
+            $posted = $this->documentService->post($document);
+
+            $this->maybeCompleteOpening($target);
+
+            return $posted;
+        });
+    }
+
+    /**
+     * Draft OR posted opening for one (fiscal year, branch) bucket, or null when neither exists.
+     */
+    public function find(FiscalYear|int $target, ?int $branchId = null): ?Document
+    {
+        $target = $this->resolveFiscalYear($target);
+        $key = $this->idempotencyKey($target, $branchId);
+
+        return Document::query()
+            ->with('items.account')
+            ->where('idempotency_key', $key)
+            ->where('type', 'opening')
+            ->whereIn('status', [DocumentStatus::DRAFT->value, DocumentStatus::POSTED->value])
+            ->first();
+    }
+
+    /**
+     * One-shot convenience: saveDraft($items) + confirm(), inside one transaction.
+     * Kept for existing callers (e.g. Matrix's PostOpeningBalanceAction). New callers
+     * should prefer saveDraft() + confirm() so the user can review before posting.
+     *
+     * Idempotent replay is preserved: if a posted opening already matches this bucket,
+     * it is returned unchanged (no new document, no re-validation of items).
      *
      * @param  list<array{account_id: int, amount: float, sign: int, description?: ?string}>  $items
      */
@@ -54,7 +201,7 @@ class OpeningService
             $existing = $this->existingPostedOpening($target, $branchId);
             if ($existing) {
                 if ( ! $target->opening_done) {
-                    $this->fiscalYearService->completeOpening($target);
+                    $this->maybeCompleteOpening($target);
                 }
 
                 return $existing->load('items.account');
@@ -69,26 +216,23 @@ class OpeningService
 
             $this->assertNoPostedOperationalDocuments($target);
 
-            $document = $this->documentService->create([
-                'type' => 'opening',
-                'date' => $target->start_date->toDateString(),
-                'fiscal_year_id' => $target->id,
-                'branch_id' => $branchId,
-                'idempotency_key' => $this->idempotencyKey($target, $branchId),
-                'items' => $this->normalizeItems($items),
-            ]);
+            $this->saveDraft($target, $items, $branchId);
 
-            $posted = $this->documentService->post($document);
-            $this->fiscalYearService->completeOpening($target);
-
-            return $posted;
+            return $this->confirm($target, $branchId);
         });
     }
 
     /**
-     * Carry posted permanent balances from a closed source year into the next active year.
+     * Create/refresh DRAFT permanent-balance openings for the next active year, carried
+     * forward from a closed source year. Does not post and does not set `opening_done`
+     * by itself — call confirm() per bucket (or use post()) to finalize each one.
      *
-     * @return list<Document>
+     * A bucket that already has a *posted* opening matching the recomputed plan is left
+     * untouched and returned as-is (repeat-safe / crash-recovery-safe). A mismatched
+     * posted opening for a bucket still fails the whole call.
+     *
+     * @return list<Document> Draft (or already-posted, matching) documents, one per
+     *                         non-empty source `documents.branch_id` bucket.
      */
     public function carryForward(FiscalYear|int $source, FiscalYear|int $target): array
     {
@@ -103,45 +247,131 @@ class OpeningService
 
             $this->lockPostedDocuments($source);
             $this->lockPostedDocuments($target);
+            $this->lockDraftOpeningDocuments($target);
+
+            $this->assertNoPostedOperationalDocuments($target);
 
             $plans = $this->plansFromSource($source);
             $expected = array_values(array_filter($plans, fn (array $plan) => $plan['items'] !== []));
 
-            $this->assertNoPostedOperationalDocuments($target);
+            if ($expected === []) {
+                $this->assertNoExistingOpenings($target);
+                $this->fiscalYearService->completeOpening($target);
 
-            $existing = $this->matchingPostedOpenings($target, $expected);
-            if ($existing !== null) {
-                if ( ! $target->opening_done) {
-                    $this->fiscalYearService->completeOpening($target);
-                }
-
-                return $existing;
+                return [];
             }
 
-            if ($target->opening_done) {
-                throw new FiscalYearStateException(
-                    $target,
-                    __('accounting::accounting.messages.opening_inconsistent_state')
-                );
-            }
-
-            if ($this->postedOpeningDocuments($target)->isNotEmpty()) {
-                throw new FiscalYearStateException(
-                    $target,
-                    __('accounting::accounting.messages.opening_inconsistent_state')
-                );
-            }
-
-            $posted = [];
+            $documents = [];
             foreach ($expected as $plan) {
-                $posted[] = $this->postCarryForwardDocument($source, $target, $plan);
+                $documents[] = $this->carryForwardBucket($source, $target, $plan);
             }
 
             $this->assertNoPostedOperationalDocuments($target);
-            $this->fiscalYearService->completeOpening($target);
 
-            return $posted;
+            if (collect($documents)->every(fn (Document $document) => $document->isPosted())) {
+                $this->fiscalYearService->completeOpening($target);
+            }
+
+            return $documents;
         });
+    }
+
+    /**
+     * @param  array{branch_id: ?int, items: list<array{account_id: int, amount: float, sign: int}>}  $plan
+     */
+    private function carryForwardBucket(FiscalYear $source, FiscalYear $target, array $plan): Document
+    {
+        $key = $this->idempotencyKey($target, $plan['branch_id']);
+        $existing = Document::query()
+            ->with('items.account')
+            ->where('idempotency_key', $key)
+            ->lockForUpdate()
+            ->first();
+
+        if ($existing && $existing->isPosted()) {
+            if ($existing->type !== 'opening' || ! $this->itemsMatch($plan['items'], $existing)) {
+                throw new FiscalYearStateException(
+                    $target,
+                    __('accounting::accounting.messages.opening_inconsistent_state')
+                );
+            }
+
+            return $existing;
+        }
+
+        $document = $this->saveDraft($target, $plan['items'], $plan['branch_id']);
+
+        $document->forceFill([
+            'meta' => [
+                'source_fiscal_year_id' => $source->id,
+                'operation' => 'carry_forward',
+            ],
+        ])->save();
+
+        return $document->fresh()->load('items.account');
+    }
+
+    private function assertNoExistingOpenings(FiscalYear $fiscalYear): void
+    {
+        $exists = Document::query()
+            ->where('fiscal_year_id', $fiscalYear->id)
+            ->where('type', 'opening')
+            ->exists();
+
+        if ($exists) {
+            throw new FiscalYearStateException(
+                $fiscalYear,
+                __('accounting::accounting.messages.opening_inconsistent_state')
+            );
+        }
+    }
+
+    /**
+     * Set `opening_done` once no `type=opening, status=draft` document remains for the
+     * year. Idempotent — safe to call whether or not the flag is already true.
+     */
+    private function maybeCompleteOpening(FiscalYear $fiscalYear): void
+    {
+        $hasDraftOpening = Document::query()
+            ->where('fiscal_year_id', $fiscalYear->id)
+            ->where('type', 'opening')
+            ->where('status', DocumentStatus::DRAFT->value)
+            ->exists();
+
+        if ( ! $hasDraftOpening) {
+            $this->fiscalYearService->completeOpening($fiscalYear);
+        }
+    }
+
+    private function assertMinItems(array $items): void
+    {
+        $minItems = (int) config('accounting.document.min_items', 2);
+
+        if (count($items) < $minItems) {
+            throw new InvalidArgumentException(__('accounting::accounting.validation.items_required', ['min' => $minItems]));
+        }
+    }
+
+    /**
+     * Replace a draft document's items in place (delete + recreate). Only ever called
+     * on a `status=draft` document — DocumentItem's own guards refuse this on posted/voided rows.
+     *
+     * @param  list<array{account_id: int, amount: float, sign: int, description?: ?string}>  $items
+     */
+    private function replaceItems(Document $document, array $items): void
+    {
+        $document->items()->delete();
+
+        foreach ($items as $index => $item) {
+            DocumentItem::create([
+                'document_id' => $document->id,
+                'account_id' => $item['account_id'],
+                'amount' => $item['amount'],
+                'sign' => $item['sign'],
+                'description' => $item['description'] ?? null,
+                'order' => $index,
+            ]);
+        }
     }
 
     private function assertSourceClosed(FiscalYear $source): void
@@ -290,99 +520,6 @@ class OpeningService
     }
 
     /**
-     * @param  array{branch_id: ?int, items: list<array{account_id: int, amount: float, sign: int}>}  $plan
-     */
-    private function postCarryForwardDocument(FiscalYear $source, FiscalYear $target, array $plan): Document
-    {
-        $this->assertKeyAvailableForCreate($target, $plan['branch_id']);
-
-        $document = $this->documentService->create([
-            'type' => 'opening',
-            'date' => $target->start_date->toDateString(),
-            'fiscal_year_id' => $target->id,
-            'branch_id' => $plan['branch_id'],
-            'idempotency_key' => $this->idempotencyKey($target, $plan['branch_id']),
-            'meta' => [
-                'source_fiscal_year_id' => $source->id,
-                'operation' => 'carry_forward',
-            ],
-            'items' => $plan['items'],
-        ]);
-
-        $posted = $this->documentService->post($document);
-        $this->assertPostedOpeningMatchesPlan($posted, $plan);
-
-        return $posted;
-    }
-
-    /**
-     * @param  array{branch_id: ?int, items: list<array{account_id: int, amount: float, sign: int}>}  $plan
-     */
-    private function assertPostedOpeningMatchesPlan(Document $document, array $plan): void
-    {
-        if ( ! $document->isPosted() || $document->type !== 'opening') {
-            throw new FiscalYearStateException(
-                null,
-                __('accounting::accounting.messages.opening_inconsistent_state')
-            );
-        }
-
-        $signed = (float) $document->items->sum(fn ($item) => (float) $item->amount * (int) $item->sign);
-        if (abs($signed) >= self::TOLERANCE) {
-            throw new UnbalancedDocumentException(
-                (float) $document->items->where('sign', 1)->sum('amount'),
-                (float) $document->items->where('sign', -1)->sum('amount')
-            );
-        }
-
-        if ( ! $this->itemsMatch($plan['items'], $document)) {
-            throw new FiscalYearStateException(
-                null,
-                __('accounting::accounting.messages.opening_inconsistent_state')
-            );
-        }
-    }
-
-    /**
-     * @param  list<array{branch_id: ?int, items: list<array{account_id: int, amount: float, sign: int}>}>  $expected
-     * @return list<Document>|null
-     */
-    private function matchingPostedOpenings(FiscalYear $target, array $expected): ?array
-    {
-        $posted = $this->postedOpeningDocuments($target);
-
-        if ($expected === [] && $posted->isEmpty()) {
-            return [];
-        }
-
-        if ($posted->count() !== count($expected)) {
-            return null;
-        }
-
-        $byKey = $posted->keyBy('idempotency_key');
-
-        foreach ($expected as $plan) {
-            $key = $this->idempotencyKey($target, $plan['branch_id']);
-            $document = $byKey->get($key);
-            if ( ! $document instanceof Document) {
-                return null;
-            }
-
-            $document->loadMissing('items.account');
-
-            if ($this->normalizeBranchId($document->branch_id) !== $plan['branch_id']) {
-                return null;
-            }
-
-            if ( ! $this->itemsMatch($plan['items'], $document)) {
-                return null;
-            }
-        }
-
-        return $posted->values()->all();
-    }
-
-    /**
      * @param  list<array{account_id: int, amount: float, sign: int}>  $expected
      */
     private function itemsMatch(array $expected, Document $document): bool
@@ -421,33 +558,6 @@ class OpeningService
         }
 
         return true;
-    }
-
-    private function assertKeyAvailableForCreate(FiscalYear $target, ?int $branchId): void
-    {
-        $existing = Document::query()
-            ->where('idempotency_key', $this->idempotencyKey($target, $branchId))
-            ->lockForUpdate()
-            ->first();
-
-        if ($existing) {
-            throw new DuplicateIdempotencyKeyException((string) $existing->idempotency_key);
-        }
-    }
-
-    /**
-     * @return Collection<int, Document>
-     */
-    private function postedOpeningDocuments(FiscalYear $fiscalYear): Collection
-    {
-        return Document::query()
-            ->with('items.account')
-            ->where('fiscal_year_id', $fiscalYear->id)
-            ->where('status', DocumentStatus::POSTED->value)
-            ->where('type', 'opening')
-            ->orderBy('id')
-            ->lockForUpdate()
-            ->get();
     }
 
     /**
@@ -501,7 +611,7 @@ class OpeningService
                 return $byKey;
             }
 
-            throw new DuplicateIdempotencyKeyException((string) $byKey->idempotency_key);
+            return null;
         }
 
         $query = Document::query()
@@ -567,6 +677,17 @@ class OpeningService
         Document::query()
             ->where('fiscal_year_id', $fiscalYear->id)
             ->where('status', DocumentStatus::POSTED->value)
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+    }
+
+    private function lockDraftOpeningDocuments(FiscalYear $fiscalYear): void
+    {
+        Document::query()
+            ->where('fiscal_year_id', $fiscalYear->id)
+            ->where('type', 'opening')
+            ->where('status', DocumentStatus::DRAFT->value)
             ->orderBy('id')
             ->lockForUpdate()
             ->get();

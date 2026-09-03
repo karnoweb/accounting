@@ -314,4 +314,185 @@ class OpeningServiceTest extends TestCase
 
         $this->opening()->post($fy, $this->balancedItems($chart['detail'], $chart['detail2'], 10));
     }
+
+    // --- saveDraft() / confirm() / find() -----------------------------------------
+
+    public function test_save_draft_creates_draft_and_leaves_opening_done_false(): void
+    {
+        $fy = $this->activeYear();
+        $chart = $this->createPostableChart();
+
+        $draft = $this->opening()->saveDraft($fy, $this->balancedItems($chart['detail'], $chart['detail2'], 100));
+
+        $this->assertSame(DocumentStatus::DRAFT, $draft->status);
+        $this->assertSame('opening', $draft->type);
+        $this->assertSame('opening:'.$fy->id.':branch:none', $draft->idempotency_key);
+        $this->assertFalse($fy->fresh()->opening_done);
+        $this->assertSame(1, Document::query()->where('type', 'opening')->count());
+    }
+
+    public function test_save_draft_may_be_unbalanced(): void
+    {
+        $fy = $this->activeYear();
+        $chart = $this->createPostableChart();
+
+        $draft = $this->opening()->saveDraft($fy, [
+            ['account_id' => $chart['detail']->id, 'amount' => 100, 'sign' => 1],
+            ['account_id' => $chart['detail2']->id, 'amount' => 40, 'sign' => -1],
+        ]);
+
+        $this->assertSame(DocumentStatus::DRAFT, $draft->status);
+        $this->assertFalse($draft->isBalanced());
+        $this->assertFalse($fy->fresh()->opening_done);
+    }
+
+    public function test_save_draft_called_twice_replaces_items_in_place(): void
+    {
+        $fy = $this->activeYear();
+        $chart = $this->createPostableChart();
+
+        $first = $this->opening()->saveDraft($fy, $this->balancedItems($chart['detail'], $chart['detail2'], 50));
+        $second = $this->opening()->saveDraft($fy, $this->balancedItems($chart['detail'], $chart['detail2'], 90));
+
+        $this->assertSame($first->id, $second->id);
+        $this->assertSame(1, Document::query()->where('type', 'opening')->count());
+        $this->assertSame(2, $second->items->count());
+        $this->assertEqualsWithDelta(90.0, (float) $second->items->where('sign', 1)->sum('amount'), 0.001);
+    }
+
+    public function test_confirm_posts_balances_and_completes_opening(): void
+    {
+        $fy = $this->activeYear();
+        $chart = $this->createPostableChart();
+        $this->opening()->saveDraft($fy, $this->balancedItems($chart['detail'], $chart['detail2'], 70));
+
+        $posted = $this->opening()->confirm($fy);
+
+        $this->assertTrue($posted->isPosted());
+        $this->assertSame('opening', $posted->type);
+        $this->assertSame('opening:'.$fy->id.':branch:none', $posted->idempotency_key);
+        $this->assertTrue($fy->fresh()->opening_done);
+        $this->assertSame(1, Document::query()->count());
+    }
+
+    public function test_confirm_without_draft_is_rejected(): void
+    {
+        $fy = $this->activeYear();
+
+        $this->expectException(FiscalYearStateException::class);
+
+        $this->opening()->confirm($fy);
+    }
+
+    public function test_confirm_unbalanced_draft_fails(): void
+    {
+        $fy = $this->activeYear();
+        $chart = $this->createPostableChart();
+        $this->opening()->saveDraft($fy, [
+            ['account_id' => $chart['detail']->id, 'amount' => 100, 'sign' => 1],
+            ['account_id' => $chart['detail2']->id, 'amount' => 40, 'sign' => -1],
+        ]);
+
+        try {
+            $this->opening()->confirm($fy);
+            $this->fail('Unbalanced draft must not confirm');
+        } catch (UnbalancedDocumentException $e) {
+            $this->assertFalse($fy->fresh()->opening_done);
+            $this->assertSame(DocumentStatus::DRAFT, Document::query()->first()->status);
+        }
+    }
+
+    public function test_confirm_with_posted_operational_document_fails(): void
+    {
+        $fy = $this->activeYear();
+        $chart = $this->createPostableChart();
+        $this->opening()->saveDraft($fy, $this->balancedItems($chart['detail'], $chart['detail2'], 40));
+        $this->documents()->post($this->documents()->create([
+            'type' => 'adjustment',
+            'date' => '2025-03-01',
+            'fiscal_year_id' => $fy->id,
+            'items' => $this->balancedItems($chart['detail'], $chart['detail2'], 10),
+        ]));
+
+        try {
+            $this->opening()->confirm($fy);
+            $this->fail('Operational activity must block confirm');
+        } catch (FiscalYearStateException $e) {
+            $this->assertFalse($fy->fresh()->opening_done);
+            $this->assertSame(DocumentStatus::DRAFT, Document::query()->where('type', 'opening')->first()->status);
+        }
+    }
+
+    public function test_confirm_is_idempotent_when_already_posted(): void
+    {
+        $fy = $this->activeYear();
+        $chart = $this->createPostableChart();
+        $this->opening()->saveDraft($fy, $this->balancedItems($chart['detail'], $chart['detail2'], 60));
+        $first = $this->opening()->confirm($fy);
+
+        $second = $this->opening()->confirm($fy);
+
+        $this->assertSame($first->id, $second->id);
+        $this->assertSame(1, Document::query()->count());
+        $this->assertTrue($fy->fresh()->opening_done);
+    }
+
+    public function test_save_draft_rejects_when_posted_opening_already_exists_for_bucket(): void
+    {
+        $fy = $this->activeYear();
+        $chart = $this->createPostableChart();
+        $this->opening()->post($fy, $this->balancedItems($chart['detail'], $chart['detail2'], 30));
+
+        $this->expectException(FiscalYearStateException::class);
+
+        $this->opening()->saveDraft($fy, $this->balancedItems($chart['detail'], $chart['detail2'], 55));
+    }
+
+    public function test_find_returns_null_when_nothing_exists(): void
+    {
+        $fy = $this->activeYear();
+
+        $this->assertNull($this->opening()->find($fy));
+    }
+
+    public function test_find_returns_draft_before_confirm_and_posted_after(): void
+    {
+        $fy = $this->activeYear();
+        $chart = $this->createPostableChart();
+        $this->opening()->saveDraft($fy, $this->balancedItems($chart['detail'], $chart['detail2'], 65));
+
+        $draft = $this->opening()->find($fy);
+        $this->assertNotNull($draft);
+        $this->assertSame(DocumentStatus::DRAFT, $draft->status);
+
+        $this->opening()->confirm($fy);
+
+        $posted = $this->opening()->find($fy);
+        $this->assertNotNull($posted);
+        $this->assertTrue($posted->isPosted());
+        $this->assertSame($draft->id, $posted->id);
+    }
+
+    public function test_find_respects_branch_bucket(): void
+    {
+        $fy = $this->activeYear();
+        $chart = $this->createPostableChart();
+        $this->opening()->saveDraft($fy, $this->balancedItems($chart['detail'], $chart['detail2'], 12), 3);
+
+        $this->assertNull($this->opening()->find($fy));
+        $this->assertNull($this->opening()->find($fy, 7));
+        $this->assertNotNull($this->opening()->find($fy, 3));
+    }
+
+    public function test_post_one_shot_is_equivalent_to_save_draft_then_confirm(): void
+    {
+        $fy = $this->activeYear();
+        $chart = $this->createPostableChart();
+
+        $document = $this->opening()->post($fy, $this->balancedItems($chart['detail'], $chart['detail2'], 45));
+
+        $this->assertTrue($document->isPosted());
+        $this->assertTrue($fy->fresh()->opening_done);
+        $this->assertSame($document->id, $this->opening()->find($fy)->id);
+    }
 }

@@ -50,7 +50,7 @@ class DocumentService
                         isset($data['type']) ? (string) $data['type'] : null,
                         $branchId
                     );
-                    $this->validateItems($data['items'] ?? [], $branchId);
+                    $this->validateItems($data['items'] ?? [], $branchId, (bool) ($data['balance_required'] ?? true));
                     $this->assertIdempotencyKeyAvailable($data['idempotency_key'] ?? null);
 
                     $number = $manualNumber
@@ -224,7 +224,12 @@ class DocumentService
         return 0;
     }
 
-    private function validateItems(array $items, ?int $branchId = null): void
+    /**
+     * @param  bool  $requireBalance  Pass false to allow a structurally valid but
+     *                                unbalanced item set (e.g. a draft opening whose
+     *                                balance is enforced later, on confirm/post).
+     */
+    private function validateItems(array $items, ?int $branchId = null, bool $requireBalance = true): void
     {
         $minItems = config('accounting.document.min_items', 2);
 
@@ -241,6 +246,10 @@ class DocumentService
 
             $this->accountService->assertPostable($account);
             $this->assertAccountBranchMatches($account, $branchId);
+        }
+
+        if ( ! $requireBalance) {
+            return;
         }
 
         $balance = 0;

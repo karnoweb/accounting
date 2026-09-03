@@ -53,11 +53,32 @@ Accounting::document()
 
 ## ۵. ثبت افتتاحیه دستی
 
+روش یک‌مرحله‌ای (سازگاری با نسخه‌های قبلی؛ اگر باکت از قبل posted باشد idempotent است):
+
 ```php
 Accounting::opening()->post($fiscalYear, [
     ['account_id' => $cashAccount->id, 'amount' => 1000, 'sign' => 1],
     ['account_id' => $capitalAccount->id, 'amount' => 1000, 'sign' => -1],
 ]);
+```
+
+روش پیش‌نویس → تأیید (از نسخهٔ ۱۳.۵.۰، پیشنهادی برای UI حسابداری که بعداً باز می‌شود):
+
+```php
+// ۱) پیش‌نویس بساز یا ویرایش کن — حتی اگر هنوز نامتوازن باشد
+$draft = Accounting::opening()->saveDraft($fiscalYear, [
+    ['account_id' => $cashAccount->id, 'amount' => 1000, 'sign' => 1],
+    ['account_id' => $capitalAccount->id, 'amount' => 1000, 'sign' => -1],
+], branchId: null);
+
+// ... کاربر می‌تواند بار دیگر saveDraft() را با آیتم‌های اصلاح‌شده صدا بزند؛
+// همان سند (همان id و idempotency_key) به‌جای ساخت سند جدید به‌روزرسانی می‌شود.
+
+// ۲) وقتی آماده شد، تأیید و ثبت قطعی کن (اینجا تعادل بررسی می‌شود)
+$posted = Accounting::opening()->confirm($fiscalYear, branchId: null);
+
+// وضعیت فعلی افتتاحیه (draft یا posted) را هر زمان بخواهی بگیر
+$opening = Accounting::opening()->find($fiscalYear, branchId: null);
 ```
 
 ## ۶. بستن سود و زیان

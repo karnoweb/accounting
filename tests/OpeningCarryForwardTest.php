@@ -67,6 +67,20 @@ class OpeningCarryForwardTest extends TestCase
         return $this->documents()->post($this->documents()->create($payload));
     }
 
+    /**
+     * carryForward() only produces DRAFT openings; confirm() posts each bucket in
+     * place. Helper to confirm every draft returned by carryForward() in this suite.
+     *
+     * @param  list<Document>  $drafts
+     * @return \Illuminate\Support\Collection<int, Document> keyed by (int) branch_id
+     */
+    private function confirmDrafts(FiscalYear $target, array $drafts): \Illuminate\Support\Collection
+    {
+        return collect($drafts)
+            ->map(fn (Document $draft) => $this->opening()->confirm($target, $draft->branch_id))
+            ->keyBy(fn (Document $document) => (int) $document->branch_id);
+    }
+
     private function temporaryAccounts(Account $parent): array
     {
         $income = app(AccountService::class)->create([
@@ -91,18 +105,22 @@ class OpeningCarryForwardTest extends TestCase
         $source = $this->years()->close($source);
         $target = $this->activateYear('FY 2026', '2026-01-01', '2026-12-31');
 
-        $documents = $this->opening()->carryForward($source, $target);
+        $drafts = $this->opening()->carryForward($source, $target);
 
-        $this->assertCount(1, $documents);
-        $document = $documents[0];
+        $this->assertCount(1, $drafts);
+        $draft = $drafts[0];
+        $this->assertSame(DocumentStatus::DRAFT, $draft->status);
+        $this->assertSame('opening', $draft->type);
+        $this->assertSame('2026-01-01', $draft->date->toDateString());
+        $this->assertSame($target->id, $draft->fiscal_year_id);
+        $this->assertNull($draft->branch_id);
+        $this->assertSame('opening:'.$target->id.':branch:none', $draft->idempotency_key);
+        $this->assertSame($source->id, $draft->meta['source_fiscal_year_id']);
+        $this->assertSame('carry_forward', $draft->meta['operation']);
+        $this->assertFalse($target->fresh()->opening_done);
+
+        $document = $this->opening()->confirm($target);
         $this->assertTrue($document->isPosted());
-        $this->assertSame('opening', $document->type);
-        $this->assertSame('2026-01-01', $document->date->toDateString());
-        $this->assertSame($target->id, $document->fiscal_year_id);
-        $this->assertNull($document->branch_id);
-        $this->assertSame('opening:'.$target->id.':branch:none', $document->idempotency_key);
-        $this->assertSame($source->id, $document->meta['source_fiscal_year_id']);
-        $this->assertSame('carry_forward', $document->meta['operation']);
         $this->assertTrue($target->fresh()->opening_done);
 
         $debit = $document->items->firstWhere('account_id', $chart['detail']->id);
@@ -314,17 +332,22 @@ class OpeningCarryForwardTest extends TestCase
         $source = $this->years()->close($source);
         $target = $this->activateYear('FY 2026', '2026-01-01', '2026-12-31');
 
-        $documents = $this->opening()->carryForward($source, $target);
-        $this->assertCount(2, $documents);
+        $drafts = $this->opening()->carryForward($source, $target);
+        $this->assertCount(2, $drafts);
 
-        $byBranch = collect($documents)->keyBy(fn (Document $document) => (int) $document->branch_id);
+        $byBranch = collect($drafts)->keyBy(fn (Document $document) => (int) $document->branch_id);
         $this->assertTrue($byBranch->has(1));
         $this->assertTrue($byBranch->has(2));
         $this->assertSame('opening:'.$target->id.':branch:1', $byBranch[1]->idempotency_key);
         $this->assertSame('opening:'.$target->id.':branch:2', $byBranch[2]->idempotency_key);
 
+        foreach ($drafts as $draft) {
+            $this->assertEqualsWithDelta(0.0, (float) $draft->items->sum(fn ($item) => $item->amount * $item->sign), 0.001);
+        }
+
+        $documents = $this->confirmDrafts($target, $drafts);
         foreach ($documents as $document) {
-            $this->assertEqualsWithDelta(0.0, (float) $document->items->sum(fn ($item) => $item->amount * $item->sign), 0.001);
+            $this->assertTrue($document->isPosted());
         }
 
         $branch1 = LedgerQuery::make()->forFiscalYear($target)->branch(1)->forAccount($chart['detail'])->periodTotals();
@@ -461,7 +484,14 @@ class OpeningCarryForwardTest extends TestCase
         $this->assertSame(1, Document::query()->where('type', 'opening')->count());
     }
 
-    public function test_partial_openings_are_not_repaired(): void
+    /**
+     * With draft-per-bucket openings, a partially-confirmed target is the normal,
+     * expected state — not an error. A bucket already posted and matching the
+     * recomputed plan is left untouched; a bucket with no matching posted opening
+     * yet gets a fresh draft. `opening_done` stays false until every bucket is
+     * confirmed.
+     */
+    public function test_partial_openings_create_remaining_drafts_without_error(): void
     {
         $source = $this->activateYear('FY 2025', '2025-01-01', '2025-12-31');
         $chart = $this->createPostableChart();
@@ -479,9 +509,47 @@ class OpeningCarryForwardTest extends TestCase
             'items' => $this->balancedItems($chart['detail'], $chart['detail2'], 10),
         ]));
 
+        $documents = collect($this->opening()->carryForward($source, $target))
+            ->keyBy(fn (Document $document) => (int) $document->branch_id);
+
+        $this->assertFalse($target->fresh()->opening_done);
+        $this->assertCount(2, $documents);
+        $this->assertSame($seed->id, $documents[1]->id);
+        $this->assertTrue($documents[1]->isPosted());
+        $this->assertSame(DocumentStatus::DRAFT, $documents[2]->status);
+        $this->assertSame(2, Document::query()->where('type', 'opening')->count());
+
+        $confirmed = $this->opening()->confirm($target, 2);
+        $this->assertTrue($confirmed->isPosted());
+        $this->assertTrue($target->fresh()->opening_done);
+    }
+
+    /**
+     * A bucket already posted with items that do NOT match the recomputed plan is
+     * a genuine inconsistency and still fails the whole call, leaving the other
+     * buckets untouched.
+     */
+    public function test_mismatched_posted_opening_still_rejects(): void
+    {
+        $source = $this->activateYear('FY 2025', '2025-01-01', '2025-12-31');
+        $chart = $this->createPostableChart();
+        $this->postInYear($source, $chart['detail'], $chart['detail2'], 10, 1);
+        $this->postInYear($source, $chart['detail'], $chart['detail2'], 20, 2);
+        $source = $this->years()->close($source);
+        $target = $this->activateYear('FY 2026', '2026-01-01', '2026-12-31');
+
+        $seed = $this->documents()->post($this->documents()->create([
+            'type' => 'opening',
+            'date' => '2026-01-01',
+            'fiscal_year_id' => $target->id,
+            'branch_id' => 1,
+            'idempotency_key' => 'opening:'.$target->id.':branch:1',
+            'items' => $this->balancedItems($chart['detail'], $chart['detail2'], 999),
+        ]));
+
         try {
             $this->opening()->carryForward($source, $target);
-            $this->fail('Partial openings must not be repaired');
+            $this->fail('Mismatched posted opening must not be repaired');
         } catch (FiscalYearStateException $e) {
             $this->assertFalse($target->fresh()->opening_done);
             $this->assertSame(1, Document::query()->where('type', 'opening')->count());
@@ -520,10 +588,15 @@ class OpeningCarryForwardTest extends TestCase
         ]));
         $voided->void('redo');
 
-        $recreated = $this->opening()->carryForward($source, $target);
-        $this->assertCount(1, $recreated);
-        $this->assertTrue($recreated[0]->isPosted());
-        $this->assertSame('opening:'.$target->id.':branch:none', $recreated[0]->idempotency_key);
+        $recreatedDrafts = $this->opening()->carryForward($source, $target);
+        $this->assertCount(1, $recreatedDrafts);
+        $this->assertSame(DocumentStatus::DRAFT, $recreatedDrafts[0]->status);
+        $this->assertSame('opening:'.$target->id.':branch:none', $recreatedDrafts[0]->idempotency_key);
+        $this->assertFalse($target->fresh()->opening_done);
+
+        $confirmed = $this->opening()->confirm($target);
+        $this->assertTrue($confirmed->isPosted());
+        $this->assertSame('opening:'.$target->id.':branch:none', $confirmed->idempotency_key);
         $this->assertTrue($target->fresh()->opening_done);
     }
 
@@ -534,7 +607,7 @@ class OpeningCarryForwardTest extends TestCase
         $this->postInYear($source, $chart['detail'], $chart['detail2'], 200);
         $source = $this->years()->close($source);
         $target = $this->activateYear('FY 2026', '2026-01-01', '2026-12-31');
-        $this->opening()->carryForward($source, $target);
+        $this->opening()->confirm($target, $this->opening()->carryForward($source, $target)[0]->branch_id);
 
         $fullYear = Accounting::report()->trialBalanceDetailed($target)->find($chart['detail']->id);
         $this->assertEqualsWithDelta(0.0, $fullYear->openingDebit, 0.001);
@@ -584,7 +657,7 @@ class OpeningCarryForwardTest extends TestCase
         $this->postInYear($source, $chart['detail'], $chart['detail2'], 88, null);
         $source = $this->years()->close($source);
         $target = $this->activateYear('FY 2026', '2026-01-01', '2026-12-31');
-        $this->opening()->carryForward($source, $target);
+        $this->opening()->confirm($target, $this->opening()->carryForward($source, $target)[0]->branch_id);
 
         $sourceTotals = LedgerQuery::make()->forFiscalYear($source)->branch(null)->periodTotalsByAccount();
         $targetTotals = LedgerQuery::make()->forFiscalYear($target)->branch(null)->periodTotalsByAccount();

@@ -229,7 +229,7 @@ class FiscalYearLifecycleTest extends TestCase
         $this->assertSame(40.0, (float) DocumentItem::query()->where('sign', 1)->sum('amount'));
     }
 
-    public function test_active_date_range_cannot_be_changed(): void
+    public function test_active_start_date_cannot_be_changed(): void
     {
         $fy = $this->service()->activate($this->service()->create([
             'title' => 'FY 2025',
@@ -240,6 +240,101 @@ class FiscalYearLifecycleTest extends TestCase
         $this->expectException(FiscalYearStateException::class);
 
         $this->service()->update($fy, ['start_date' => '2025-01-02']);
+    }
+
+    public function test_active_end_date_can_be_shortened_to_latest_document_date(): void
+    {
+        $context = $this->postedContext(30);
+        $fy = $context['fy'];
+
+        $updated = $this->service()->update($fy, ['end_date' => '2025-06-01']);
+
+        $this->assertSame('2025-06-01', $updated->end_date->toDateString());
+        $this->assertSame(FiscalYearStatus::ACTIVE, $updated->status);
+        $this->assertSame('2025-01-01', $updated->start_date->toDateString());
+    }
+
+    public function test_active_end_date_cannot_be_set_before_latest_document_date(): void
+    {
+        $context = $this->postedContext(30);
+        $fy = $context['fy'];
+
+        $this->expectException(FiscalYearStateException::class);
+
+        $this->service()->update($fy, ['end_date' => '2025-05-31']);
+    }
+
+    public function test_active_end_date_can_be_extended(): void
+    {
+        $context = $this->postedContext(10);
+        $fy = $context['fy'];
+
+        $updated = $this->service()->update($fy, ['end_date' => '2026-01-31']);
+
+        $this->assertSame('2026-01-31', $updated->end_date->toDateString());
+        $this->assertSame(FiscalYearStatus::ACTIVE, $updated->status);
+    }
+
+    public function test_active_end_date_change_still_rechecks_overlap(): void
+    {
+        $this->service()->create([
+            'title' => 'FY 2026',
+            'start_date' => '2026-01-01',
+            'end_date' => '2026-12-31',
+        ]);
+        $context = $this->postedContext(10);
+        $fy = $context['fy'];
+
+        $this->expectException(FiscalYearOverlapException::class);
+
+        $this->service()->update($fy, ['end_date' => '2026-06-01']);
+    }
+
+    public function test_active_year_without_documents_can_shorten_and_extend_end_date(): void
+    {
+        $fy = $this->service()->activate($this->service()->create([
+            'title' => 'FY 2025',
+            'start_date' => '2025-01-01',
+            'end_date' => '2025-12-31',
+        ]));
+
+        $shortened = $this->service()->update($fy, ['end_date' => '2025-03-20']);
+        $this->assertSame('2025-03-20', $shortened->end_date->toDateString());
+
+        $extended = $this->service()->update($shortened, ['end_date' => '2025-06-30']);
+        $this->assertSame('2025-06-30', $extended->end_date->toDateString());
+    }
+
+    public function test_closed_fiscal_year_cannot_change_dates(): void
+    {
+        $fy = $this->service()->close($this->service()->activate($this->service()->create([
+            'title' => 'FY 2025',
+            'start_date' => '2025-01-01',
+            'end_date' => '2025-12-31',
+        ])));
+
+        $this->expectException(FiscalYearStateException::class);
+
+        $this->service()->update($fy, ['end_date' => '2025-11-30']);
+    }
+
+    public function test_latest_document_date_and_min_allowed_end_date_helpers(): void
+    {
+        $context = $this->postedContext(20);
+        $fy = $context['fy'];
+
+        $this->assertSame('2025-06-01', $this->service()->latestDocumentDate($fy));
+        $this->assertSame('2025-06-01', $this->service()->minAllowedEndDate($fy));
+        $this->assertSame('2025-06-01', $fy->fresh()->latest_document_date);
+        $this->assertSame('2025-06-01', $fy->fresh()->min_allowed_end_date);
+
+        $empty = $this->service()->create([
+            'title' => 'FY 2026',
+            'start_date' => '2026-01-01',
+            'end_date' => '2026-12-31',
+        ]);
+        $this->assertNull($this->service()->latestDocumentDate($empty));
+        $this->assertSame('2026-01-01', $this->service()->minAllowedEndDate($empty));
     }
 
     public function test_closed_fiscal_year_cannot_be_edited(): void

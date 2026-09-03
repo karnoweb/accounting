@@ -119,6 +119,24 @@ class FiscalYear extends BaseModel
     }
 
     /**
+     * Latest `documents.date` (any status) for this year, or null if it has none.
+     * Delegates to the canonical `FiscalYearService::latestDocumentDate()`.
+     */
+    public function getLatestDocumentDateAttribute(): ?string
+    {
+        return app(FiscalYearService::class)->latestDocumentDate($this);
+    }
+
+    /**
+     * Smallest `end_date` `update()` would currently accept for this year.
+     * Delegates to the canonical `FiscalYearService::minAllowedEndDate()`.
+     */
+    public function getMinAllowedEndDateAttribute(): string
+    {
+        return app(FiscalYearService::class)->minAllowedEndDate($this);
+    }
+
+    /**
      * Active current fiscal year. Closed and draft years are never returned.
      */
     public static function current(): ?self
