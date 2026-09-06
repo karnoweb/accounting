@@ -25,9 +25,16 @@ use Throwable;
  *
  * completeOpening()/revertOpening() write only the opening_done flag.
  * Opening journals, carry-forward, and P&L close are not implemented here.
+ *
+ * On activate(), when the year has no AccountingPeriods yet, a full-year OPEN
+ * period is ensured so posting has a canonical period gate.
+ * On close(), every OPEN AccountingPeriod for the year is closed.
  */
 class FiscalYearService
 {
+    public function __construct(
+        private AccountingPeriodService $periodService
+    ) {}
     /** @var list<string> */
     private const LIFECYCLE_FIELDS = [
         'status',
@@ -258,7 +265,13 @@ class FiscalYearService
 
             $fiscalYear->update($attributes);
 
-            return $fiscalYear->fresh();
+            $fresh = $fiscalYear->fresh();
+
+            if (config('accounting.period.auto_create_on_activate', true)) {
+                $this->periodService->ensureFullYearOpen($fresh);
+            }
+
+            return $fresh->fresh();
         });
     }
 
@@ -306,6 +319,8 @@ class FiscalYearService
             $this->validateCanClose($fiscalYear);
 
             $openingDone = (bool) $fiscalYear->opening_done;
+
+            $this->periodService->closeOpenPeriodsForFiscalYear($fiscalYear);
 
             $fiscalYear->update([
                 'status' => FiscalYearStatus::CLOSED,

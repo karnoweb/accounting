@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\LazyCollection;
 use Karnoweb\Accounting\Enums\DocumentStatus;
 use Karnoweb\Accounting\Models\Account;
+use Karnoweb\Accounting\Models\AccountingPeriod;
 use Karnoweb\Accounting\Models\Document;
 use Karnoweb\Accounting\Models\DocumentItem;
 use Karnoweb\Accounting\Models\FiscalYear;
@@ -92,6 +93,19 @@ final class LedgerQuery
             $this->fiscalYear = null;
             $this->fiscalYearId = $fiscalYear;
         }
+
+        return $this;
+    }
+
+    /**
+     * Constrain the report window to an AccountingPeriod's start/end dates.
+     * Opening balance remains "posted activity before period start" (unchanged).
+     */
+    public function forAccountingPeriod(AccountingPeriod $period): self
+    {
+        $this->forFiscalYear($period->fiscal_year_id);
+        $this->from($period->start_date);
+        $this->to($period->end_date);
 
         return $this;
     }

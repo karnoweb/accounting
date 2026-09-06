@@ -30,6 +30,12 @@ return [
         'closed' => 'بسته',
     ],
 
+    'accounting_period_statuses' => [
+        'draft' => 'پیش‌نویس',
+        'open' => 'باز',
+        'closed' => 'بسته',
+    ],
+
     'document_types' => [
         'sale' => 'فروش',
         'purchase' => 'خرید',
@@ -106,6 +112,25 @@ return [
         'fiscal_year_cannot_reopen' => 'سال مالی بسته قابل بازگشایی نیست.',
         'no_active_fiscal_year' => 'سال مالی فعالی وجود ندارد.',
         'no_fiscal_year_for_date' => 'سال مالی‌ای این تاریخ را پوشش نمی‌دهد.',
+        'accounting_period_closed' => 'دوره مالی بسته است.',
+        'accounting_period_not_open' => 'دوره مالی باز نیست.',
+        'accounting_period_invalid_state' => 'دوره مالی نمی‌تواند به وضعیت درخواستی تغییر کند.',
+        'accounting_period_overlap' => 'بازه دوره مالی با دوره دیگری در همین سال مالی هم‌پوشانی دارد.',
+        'accounting_period_ambiguous' => 'بیش از یک دوره مالی این تاریخ را پوشش می‌دهد.',
+        'accounting_period_invalid' => 'دوره مالی نامعتبر است.',
+        'accounting_period_name_required' => 'نام دوره مالی الزامی است.',
+        'accounting_period_date_required' => 'فیلد :field دوره مالی الزامی است.',
+        'accounting_period_invalid_dates' => 'تاریخ شروع دوره مالی باید قبل یا برابر تاریخ پایان باشد.',
+        'accounting_period_outside_fiscal_year' => 'دوره مالی باید کاملاً داخل سال مالی خود باشد.',
+        'accounting_period_fiscal_year_required' => 'سال مالی دوره الزامی است.',
+        'accounting_period_fiscal_year_closed' => 'نمی‌توان دوره مالی را در سال مالی بسته‌شده باز کرد.',
+        'accounting_period_not_editable' => 'دوره مالی در وضعیت فعلی قابل ویرایش نیست.',
+        'accounting_period_dates_locked' => 'بازه تاریخ دوره مالی در وضعیت باز قابل تغییر نیست.',
+        'accounting_period_lifecycle_fields_locked' => 'وضعیت دوره مالی فقط از طریق open() یا close() قابل تغییر است.',
+        'accounting_period_already_closed' => 'دوره مالی از قبل بسته است.',
+        'accounting_period_cannot_close' => 'دوره مالی قابل بستن نیست.',
+        'accounting_period_cannot_reopen' => 'دوره مالی بسته قابل بازگشایی نیست.',
+        'no_accounting_period_for_date' => 'دوره مالی‌ای این تاریخ را پوشش نمی‌دهد.',
         'abnormal_balance' => 'مانده غیرطبیعی برای حساب :account.',
     ],
 

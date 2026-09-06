@@ -26,6 +26,7 @@ use Karnoweb\Accounting\Facades\Accounting;
 | `balance()` | `BalanceService` |
 | `report()` | `ReportService` |
 | `fiscalYear()` | `FiscalYearService` |
+| `period()` | `AccountingPeriodService` |
 | `posting()` | `PostingService` |
 | `opening()` | `OpeningService` |
 | `closing()` | `ClosingService` |
@@ -100,7 +101,7 @@ use Karnoweb\Accounting\Facades\Accounting;
 ### نکات
 
 - `create()` شماره سند را تخصیص می‌دهد.
-- `create()` و `post()` هر دو از `PostingService` برای کنترل سال مالی و تاریخ عبور می‌کنند.
+- `create()` و `post()` هر دو از `PostingService` برای کنترل سال مالی، دوره مالی و تاریخ عبور می‌کنند.
 - `idempotency_key` در سطح دیتابیس unique است.
 
 ## `BalanceService`
@@ -142,14 +143,30 @@ use Karnoweb\Accounting\Facades\Accounting;
 | `latestDocumentDate(FiscalYear $fiscalYear)` | `?string` — آخرین `documents.date` (هر وضعیتی) این سال، یا `null` |
 | `minAllowedEndDate(FiscalYear $fiscalYear)` | `string` — کمترین `end_date` قابل قبول (`max(start_date, latestDocumentDate())`) |
 
+## `AccountingPeriodService`
+
+| متد | شرح |
+|-----|-----|
+| `create(array $data)` | ایجاد دوره `draft` |
+| `update(AccountingPeriod\|int $period, array $data)` | ویرایش نام/بازه (نه وضعیت) |
+| `open(AccountingPeriod\|int $period)` | `draft` → `open` |
+| `close(AccountingPeriod\|int $period)` | `open` → `closed` (بدون تغییر ژورنال) |
+| `resolve(FiscalYear\|int $fy, $date)` | دوره یکتای شامل تاریخ، یا `null` |
+| `resolveOrFail(...)` | مانند `resolve` با exception |
+| `assertAllowsPosting(FiscalYear\|int $fy, $date, bool $lock = true)` | gate دامنه؛ `lockForUpdate` وقتی `$lock` |
+| `allowsPosting(...)` | boolean بدون throw |
+| `ensureFullYearOpen(FiscalYear\|int $fy)` | اگر دوره‌ای نباشد، یک دوره باز تمام‌ساله |
+| `closeOpenPeriodsForFiscalYear(FiscalYear\|int $fy)` | بستن همه دوره‌های باز سال |
+
 ## `PostingService`
 
 | متد | شرح |
 |-----|-----|
-| `assertAllowed(string|\DateTimeInterface $date, FiscalYear|int|null $fiscalYear = null, ?string $type = null, ?int $branchId = null)` | gate عمومی ثبت |
+| `assertAllowed(string\|\DateTimeInterface $date, FiscalYear\|int\|null $fiscalYear = null, ?string $type = null, ?int $branchId = null, bool $lockPeriod = true): AccountingPeriod` | gate عمومی ثبت (FY + period)؛ دورهٔ باز را برمی‌گرداند |
+| `isAllowed(...)` | boolean بدون throw |
+| `resolvePeriod(FiscalYear\|int $fy, $date)` | معادل `Accounting::period()->resolve()` |
 
-`type` و `branchId` در signature فعلی هستند، اما در تصمیم‌گیری امروز نقشی ندارند.
-
+`type` و `branchId` در signature هستند، اما در تصمیم‌گیری امروز نقشی ندارند.
 ## `OpeningService`
 
 از ۱۳.۵.۰ افتتاحیه دو مرحله‌ای است: `saveDraft()` یک سند `type=opening, status=draft` (احتمالاً نامتوازن) می‌سازد؛ `confirm()` همان سند را در جا به `posted` تبدیل می‌کند (تعادل و عدم وجود سند عملیاتی ثبت‌شده را در همین مرحله بررسی می‌کند) و `opening_done` را وقتی هیچ افتتاحیه‌ی draft دیگری برای سال باقی نماند، `true` می‌کند.

@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Karnoweb\Accounting\Enums\FiscalYearStatus;
 use Karnoweb\Accounting\Exceptions\FiscalYearOverlapException;
+use Karnoweb\Accounting\Services\AccountingPeriodService;
 use Karnoweb\Accounting\Services\FiscalYearService;
 
 class FiscalYear extends BaseModel
@@ -66,11 +67,25 @@ class FiscalYear extends BaseModel
                 );
             }
         });
+
+        static::created(function (FiscalYear $fiscalYear) {
+            if (
+                $fiscalYear->isActive()
+                && config('accounting.period.auto_create_on_activate', true)
+            ) {
+                app(AccountingPeriodService::class)->ensureFullYearOpen($fiscalYear);
+            }
+        });
     }
 
     public function documents(): HasMany
     {
         return $this->hasMany(Document::class);
+    }
+
+    public function accountingPeriods(): HasMany
+    {
+        return $this->hasMany(AccountingPeriod::class);
     }
 
     public function scopeActive(Builder $query): Builder

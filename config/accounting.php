@@ -88,6 +88,12 @@ return [
         'allow_overlap' => false,
     ],
 
+    'period' => [
+        // When a fiscal year is activated and has no periods yet, create one OPEN
+        // period spanning the whole year so posting has a canonical period gate.
+        'auto_create_on_activate' => true,
+    ],
+
     'balance' => [
         'cache_enabled' => true,
         'cache_ttl' => 3600,

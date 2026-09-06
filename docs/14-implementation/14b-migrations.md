@@ -687,7 +687,10 @@ return new class extends Migration
 | ۷ | create_account_balances_table | (اختیاری) accounts, fiscal_years |
 | ۸ | create_account_monthly_summaries_table | (اختیاری) accounts, fiscal_years |
 | ۹ | create_account_translations_table | (اختیاری) accounts |
+| ۱۰ | create_accounting_periods_table (2026_09_06_000001) | fiscal_years؛ ستون `documents.accounting_period_id` |
+| ۱۱ | seed_accounting_periods_from_fiscal_years (2026_09_06_000002) | accounting_periods |
 
+> مایگریشن‌های تاریخی تغییر نمی‌کنند. دوره مالی فقط با مایگریشن‌های جدید اضافه شده است.
 ---
 
 ## ۱۲. نام‌گذاری فایل‌ها

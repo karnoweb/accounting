@@ -166,17 +166,23 @@
 
 ## ۴. سال مالی (Fiscal Year)
 
-`FiscalYear` تنها دوره مالی persisted در این پکیج است.
+`FiscalYear` ظرف سالانه ثبت است: `draft` → `active` → `closed`.
 
-وضعیت‌ها:
+### تفاوت سال مالی و دوره مالی (Accounting Period)
 
-- `draft`
-- `active`
-- `closed`
+از نسخه `13.6.0`، `AccountingPeriod` یک موجودیت persisted داخل پکیج است و قفل
+ثبت کوچک‌تر از سال مالی را فراهم می‌کند (`draft` → `open` → `closed`).
 
-### تفاوت سال مالی و دوره مالی
+- هر دوره دقیقاً به یک سال مالی تعلق دارد و باید داخل بازه همان سال باشد.
+- دوره‌های یک سال مالی نباید هم‌پوشانی داشته باشند.
+- ثبت اسناد فقط در دورهٔ `open` مجاز است؛ دورهٔ `closed` قابل بازگشایی نیست.
+- `PostingService` / `DocumentService` در لایه دامنه دوره را enforce می‌کنند
+  (نه فقط UI/middleware).
+- شعبه همچنان روی `documents` / `accounts` ایزوله می‌ماند؛ دوره branch-scoped نیست.
 
-در این نسخه، چیزی به نام جدول `AccountingPeriod` یا دوره ماهانه وجود ندارد. همه کنترل‌های ثبت فقط بر پایه سال مالی و تاریخ سند انجام می‌شوند.
+API کانونیکال: `Accounting::period()` (`create` / `open` / `close` / `resolve` /
+`assertAllowsPosting`). روی `activate()` سال مالی، اگر هنوز دوره‌ای نباشد، یک
+دورهٔ باز تمام‌ساله ساخته می‌شود (`accounting.period.auto_create_on_activate`).
 
 ### `opening_done`
 

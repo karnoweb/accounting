@@ -8,6 +8,7 @@ use Illuminate\Support\ServiceProvider;
 use Karnoweb\Accounting\Models\Document;
 use Karnoweb\Accounting\Observers\DocumentObserver;
 use Karnoweb\Accounting\Services\AccountService;
+use Karnoweb\Accounting\Services\AccountingPeriodService;
 use Karnoweb\Accounting\Services\BalanceService;
 use Karnoweb\Accounting\Services\DocumentBuilder;
 use Karnoweb\Accounting\Services\DocumentService;
@@ -29,6 +30,7 @@ class AccountingServiceProvider extends ServiceProvider
 
         $this->app->singleton(AccountService::class);
         $this->app->singleton(BalanceService::class);
+        $this->app->singleton(AccountingPeriodService::class);
         $this->app->singleton(FiscalYearService::class);
         $this->app->singleton(PostingService::class);
 
@@ -84,6 +86,7 @@ class AccountingServiceProvider extends ServiceProvider
                 $app->make(BalanceService::class),
                 $app->make(ReportService::class),
                 $app->make(FiscalYearService::class),
+                $app->make(AccountingPeriodService::class),
                 $app->make(OpeningService::class),
                 $app->make(ClosingService::class),
                 $app->make(PostingService::class),

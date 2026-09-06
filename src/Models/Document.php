@@ -27,6 +27,7 @@ class Document extends BaseModel
 
     protected $fillable = [
         'fiscal_year_id',
+        'accounting_period_id',
         'branch_id',
         'number',
         'reference',
@@ -105,6 +106,11 @@ class Document extends BaseModel
     public function fiscalYear(): BelongsTo
     {
         return $this->belongsTo(FiscalYear::class);
+    }
+
+    public function accountingPeriod(): BelongsTo
+    {
+        return $this->belongsTo(AccountingPeriod::class);
     }
 
     public function branch(): BelongsTo

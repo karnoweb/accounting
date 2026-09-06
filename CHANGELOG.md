@@ -1,5 +1,49 @@
 # Changelog
 
+## [13.6.0] - 2026-09-06
+
+### Added
+
+- **First-class `AccountingPeriod` domain.** Periods are package-owned posting
+  locks inside a fiscal year (`draft` → `open` → `closed`). Schema:
+  `acc_accounting_periods` (`fiscal_year_id`, `name`, `start_date`, `end_date`,
+  `status`, `opened_at`, `closed_at`) plus nullable `documents.accounting_period_id`.
+  New migrations only — historical migrations were not modified.
+- **`AccountingPeriodService`** — canonical API: `create()`, `update()`, `open()`,
+  `close()`, `resolve()`, `resolveOrFail()`, `assertAllowsPosting()`,
+  `allowsPosting()`, `ensureFullYearOpen()`, `closeOpenPeriodsForFiscalYear()`.
+  Exposed as `Accounting::period()`.
+- **Posting gate.** `PostingService::assertAllowed()` now resolves FY → period →
+  validates both. Closed / draft / missing periods reject posting with
+  `ClosedAccountingPeriodException` / `AccountingPeriodStateException`.
+  `DocumentService::create()` / `post()` enforce this inside the DB transaction
+  with `lockForUpdate` on the period row (close-vs-post safe). Returns the OPEN
+  period; `create()` persists `accounting_period_id`.
+- **Events:** `AccountingPeriodOpened`, `AccountingPeriodClosed`,
+  `PostingRejectedForClosedPeriod`.
+- **Reporting helper:** `LedgerQuery::forAccountingPeriod($period)` sets FY +
+  `[from, to]` from the period. Opening / period movement semantics are unchanged
+  (opening = posted activity before `from`).
+- **Upgrade seed migration** creates one covering period per existing fiscal year
+  (`draft`/`open`/`closed` mapped from FY status) so posting keeps working after
+  upgrade.
+- **Activate convenience:** when `accounting.period.auto_create_on_activate` is
+  true (default), activating a year with no periods (or creating an ACTIVE year
+  directly) ensures one OPEN full-year period. Closing a fiscal year closes every
+  OPEN period in that year.
+- Package tests in `tests/AccountingPeriodTest.php`.
+
+### Changed
+
+- `PostingService::assertAllowed()` return type is now `AccountingPeriod` (callers
+  that ignored the void return remain compatible).
+- New config key `accounting.period.auto_create_on_activate` (default `true`).
+
+### Docs
+
+- Concepts, fiscal-year lifecycle, API reference, and index updated for
+  AccountingPeriod ownership and host integration notes.
+
 ## [13.5.0] - 2026-09-03
 
 ### Changed

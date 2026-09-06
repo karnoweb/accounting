@@ -7,8 +7,10 @@ namespace Karnoweb\Accounting\Tests;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Karnoweb\Accounting\AccountingServiceProvider;
 use Karnoweb\Accounting\Enums\AccountType;
+use Karnoweb\Accounting\Enums\AccountingPeriodStatus;
 use Karnoweb\Accounting\Enums\FiscalYearStatus;
 use Karnoweb\Accounting\Models\Account;
+use Karnoweb\Accounting\Models\AccountingPeriod;
 use Karnoweb\Accounting\Models\FiscalYear;
 use Karnoweb\Accounting\Support\AccountHierarchy;
 use Orchestra\Testbench\TestCase as Orchestra;
@@ -48,12 +50,49 @@ abstract class TestCase extends Orchestra
         string $end = '2025-12-31',
         bool $current = true
     ): FiscalYear {
-        return FiscalYear::create([
+        $fy = FiscalYear::create([
             'title' => $title,
             'start_date' => $start,
             'end_date' => $end,
             'status' => FiscalYearStatus::ACTIVE,
             'is_current' => $current,
+        ]);
+
+        $this->ensureOpenPeriod($fy);
+
+        return $fy;
+    }
+
+    /**
+     * Ensure an OPEN AccountingPeriod covers the whole fiscal year (test helper).
+     */
+    protected function ensureOpenPeriod(FiscalYear $fiscalYear, ?string $name = null): AccountingPeriod
+    {
+        $existing = AccountingPeriod::query()
+            ->forFiscalYear($fiscalYear)
+            ->containingDate($fiscalYear->start_date)
+            ->first();
+
+        if ($existing) {
+            if ($existing->isDraft()) {
+                $existing->update([
+                    'status' => AccountingPeriodStatus::OPEN,
+                    'opened_at' => $existing->opened_at ?? now(),
+                ]);
+
+                return $existing->fresh();
+            }
+
+            return $existing;
+        }
+
+        return AccountingPeriod::create([
+            'fiscal_year_id' => $fiscalYear->id,
+            'name' => $name ?? $fiscalYear->title,
+            'start_date' => $fiscalYear->start_date,
+            'end_date' => $fiscalYear->end_date,
+            'status' => AccountingPeriodStatus::OPEN,
+            'opened_at' => now(),
         ]);
     }
 

@@ -9,6 +9,7 @@ use InvalidArgumentException;
 use Karnoweb\Accounting\Models\Account;
 use Karnoweb\Accounting\Models\FiscalYear;
 use Karnoweb\Accounting\Services\AccountService;
+use Karnoweb\Accounting\Services\AccountingPeriodService;
 use Karnoweb\Accounting\Services\BalanceService;
 use Karnoweb\Accounting\Services\DocumentBuilder;
 use Karnoweb\Accounting\Services\DocumentService;
@@ -23,7 +24,7 @@ use Karnoweb\Accounting\Support\BranchContext;
 /**
  * Central manager for accounting services and context.
  *
- * Resolves documents, accounts, balances, reports, fiscal years, and branch/user context.
+ * Resolves documents, accounts, balances, reports, fiscal years, periods, and branch/user context.
  */
 class AccountingManager
 {
@@ -33,6 +34,7 @@ class AccountingManager
         protected BalanceService $balanceService,
         protected ReportService $reportService,
         protected FiscalYearService $fiscalYearService,
+        protected AccountingPeriodService $periodService,
         protected OpeningService $openingService,
         protected ClosingService $closingService,
         protected PostingService $postingService,
@@ -71,6 +73,12 @@ class AccountingManager
         return $this->fiscalYearService;
     }
 
+    /** Accounting period lifecycle: create, open, close, resolve, posting checks. */
+    public function period(): AccountingPeriodService
+    {
+        return $this->periodService;
+    }
+
     /** Manual opening journals and carry-forward (type=opening). */
     public function opening(): OpeningService
     {
@@ -83,7 +91,7 @@ class AccountingManager
         return $this->closingService;
     }
 
-    /** Canonical posting authorization (FY + date). ERP adapters ask here before create/post. */
+    /** Canonical posting authorization (FY + AccountingPeriod + date). */
     public function posting(): PostingService
     {
         return $this->postingService;

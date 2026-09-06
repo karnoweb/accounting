@@ -30,6 +30,12 @@ return [
         'closed' => 'Closed',
     ],
 
+    'accounting_period_statuses' => [
+        'draft' => 'Draft',
+        'open' => 'Open',
+        'closed' => 'Closed',
+    ],
+
     'document_types' => [
         'sale' => 'Sale',
         'purchase' => 'Purchase',
@@ -106,6 +112,25 @@ return [
         'fiscal_year_cannot_reopen' => 'Closed fiscal years cannot be reopened.',
         'no_active_fiscal_year' => 'No active fiscal year.',
         'no_fiscal_year_for_date' => 'No fiscal year contains this date.',
+        'accounting_period_closed' => 'Accounting period is closed.',
+        'accounting_period_not_open' => 'Accounting period is not open.',
+        'accounting_period_invalid_state' => 'Accounting period cannot change to the requested state.',
+        'accounting_period_overlap' => 'Accounting period date range overlaps another period in the same fiscal year.',
+        'accounting_period_ambiguous' => 'More than one accounting period contains this date.',
+        'accounting_period_invalid' => 'Accounting period is invalid.',
+        'accounting_period_name_required' => 'Accounting period name is required.',
+        'accounting_period_date_required' => 'Accounting period :field is required.',
+        'accounting_period_invalid_dates' => 'Accounting period start date must be on or before the end date.',
+        'accounting_period_outside_fiscal_year' => 'Accounting period must lie entirely within its fiscal year.',
+        'accounting_period_fiscal_year_required' => 'Accounting period fiscal year is required.',
+        'accounting_period_fiscal_year_closed' => 'Cannot open an accounting period in a closed fiscal year.',
+        'accounting_period_not_editable' => 'Accounting period cannot be edited in its current state.',
+        'accounting_period_dates_locked' => 'Accounting period date range cannot be changed while open.',
+        'accounting_period_lifecycle_fields_locked' => 'Accounting period status fields must be changed through open() or close().',
+        'accounting_period_already_closed' => 'Accounting period is already closed.',
+        'accounting_period_cannot_close' => 'Accounting period cannot be closed.',
+        'accounting_period_cannot_reopen' => 'Closed accounting periods cannot be reopened.',
+        'no_accounting_period_for_date' => 'No accounting period contains this date.',
         'abnormal_balance' => 'Abnormal balance for account :account.',
     ],
 

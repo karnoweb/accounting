@@ -168,9 +168,16 @@ Opening and closing documents still pass through `DocumentService`, so they cann
 
 ### AccountingPeriod
 
-**Intentionally not introduced.** The fiscal year is the only persisted posting period. Monthly / quarterly / tax / audit locks are not in the current contract. A period table would be premature until a real lock smaller than a fiscal year is required.
+Package-native posting lock inside a fiscal year (`draft` → `open` → `closed`).
 
-Void, reporting, and ledger arithmetic are unchanged. Period controls do not filter `LedgerQuery`.
+- Owned by `AccountingPeriodService` / `Accounting::period()`.
+- `PostingService::assertAllowed()` resolves FY then period; closed/missing/draft
+  periods reject posting.
+- Closing a period does **not** mutate journal lines.
+- Closing a fiscal year closes every OPEN period for that year.
+- `LedgerQuery::forAccountingPeriod()` is a date-window helper; opening balance
+  remains “posted activity before period start”.
+- Void still does **not** require an open period.
 
 ### How ERP packages should post
 
@@ -188,6 +195,8 @@ $document = Accounting::document()
 $document->post();
 ```
 
+Hosts must **not** implement a second independent AccountingPeriod domain.
+Consume `Accounting::period()` for create/open/close/resolve/UI gates.
 The adapter must not copy fiscal-year SQL, status checks, or date-range rules. Accounting remains the source of truth.
 
 ---

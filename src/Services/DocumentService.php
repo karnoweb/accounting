@@ -13,6 +13,7 @@ use Karnoweb\Accounting\Enums\DocumentStatus;
 use Karnoweb\Accounting\Exceptions\DuplicateIdempotencyKeyException;
 use Karnoweb\Accounting\Exceptions\UnbalancedDocumentException;
 use Karnoweb\Accounting\Models\Account;
+use Karnoweb\Accounting\Models\AccountingPeriod;
 use Karnoweb\Accounting\Models\Document;
 use Karnoweb\Accounting\Models\DocumentItem;
 use Karnoweb\Accounting\Models\DocumentNumberSequence;
@@ -44,7 +45,7 @@ class DocumentService
                         : $this->getDefaultBranchId();
 
                     $fiscalYear = $this->resolveFiscalYear($data);
-                    $this->validateFiscalYear(
+                    $period = $this->assertPostingAllowed(
                         $fiscalYear,
                         $data['date'],
                         isset($data['type']) ? (string) $data['type'] : null,
@@ -59,6 +60,7 @@ class DocumentService
 
                     $document = Document::create([
                         'fiscal_year_id' => $fiscalYear->id,
+                        'accounting_period_id' => $period->id,
                         'branch_id' => $branchId,
                         'number' => $number,
                         'reference' => $data['reference'] ?? null,
@@ -125,13 +127,6 @@ class DocumentService
             );
         }
 
-        $this->validateFiscalYear(
-            $document->fiscalYear,
-            $document->date->format('Y-m-d'),
-            $document->type,
-            $document->branch_id
-        );
-
         foreach ($document->items as $item) {
             $account = $item->account ?? Account::find($item->account_id);
             if ( ! $account) {
@@ -142,6 +137,19 @@ class DocumentService
         }
 
         return DB::transaction(function () use ($document) {
+            // Re-check FY + period under row locks so close-vs-post cannot race.
+            $period = $this->assertPostingAllowed(
+                $document->fiscalYear,
+                $document->date->format('Y-m-d'),
+                $document->type,
+                $document->branch_id !== null ? (int) $document->branch_id : null
+            );
+
+            if ((int) $document->accounting_period_id !== (int) $period->id) {
+                $document->accounting_period_id = $period->id;
+                $document->save();
+            }
+
             return $document->markAsPosted($this->currentUserId());
         });
     }
@@ -302,13 +310,13 @@ class DocumentService
         throw new RuntimeException(__('accounting::accounting.messages.no_active_fiscal_year'));
     }
 
-    private function validateFiscalYear(
+    private function assertPostingAllowed(
         FiscalYear $fiscalYear,
         string|\DateTimeInterface $date,
         ?string $type = null,
         ?int $branchId = null
-    ): void {
-        $this->postingService->assertAllowed($date, $fiscalYear, $type, $branchId);
+    ): AccountingPeriod {
+        return $this->postingService->assertAllowed($date, $fiscalYear, $type, $branchId, lockPeriod: true);
     }
 
     private function getDefaultBranchId(): ?int
