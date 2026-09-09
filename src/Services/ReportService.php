@@ -4,13 +4,19 @@ declare(strict_types=1);
 
 namespace Karnoweb\Accounting\Services;
 
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use InvalidArgumentException;
+use Karnoweb\Accounting\Models\Account;
 use Karnoweb\Accounting\Models\FiscalYear;
 use Karnoweb\Accounting\Reporting\AccountLedger;
 use Karnoweb\Accounting\Reporting\GeneralLedgerReport;
+use Karnoweb\Accounting\Reporting\GeneralLedgerSummaryRow;
 use Karnoweb\Accounting\Reporting\HierarchyRollup;
 use Karnoweb\Accounting\Reporting\LedgerQuery;
+use Karnoweb\Accounting\Reporting\PaginatedAccountStatement;
+use Karnoweb\Accounting\Reporting\PaginatedCostCenterStatement;
+use Karnoweb\Accounting\Reporting\PaginatedGeneralLedgerSummary;
 use Karnoweb\Accounting\Reporting\TrialBalanceReport;
 use Karnoweb\Accounting\Support\AccountHierarchy;
 
@@ -113,37 +119,153 @@ class ReportService
      */
     public function accountStatement(LedgerQuery $query): AccountLedger
     {
-        $accountIds = $query->accountIds();
+        $accountId = $this->requireSingleAccountId($query);
 
-        if (count($accountIds) !== 1) {
+        return $this->buildAccountLedgers($query)->get($accountId)
+            ?? new AccountLedger($accountId, 0.0, collect(), 0.0);
+    }
+
+    /**
+     * Paginated single-account statement. Meta (opening/closing/period totals) is always
+     * computed for the full scope; only journal lines are sliced. Pass $perPage = -1 for all lines.
+     *
+     * @example
+     * Accounting::report()->accountStatementPaginated(
+     *     LedgerQuery::make()->forAccount($account)->forFiscalYear($fy),
+     *     page: 2,
+     *     perPage: 50,
+     * );
+     */
+    public function accountStatementPaginated(
+        LedgerQuery $query,
+        int $page = 1,
+        ?int $perPage = null
+    ): PaginatedAccountStatement {
+        $accountId = $this->requireSingleAccountId($query);
+        $total = $query->countLines();
+        [$page, $perPage, $offset] = $this->resolvePagination($page, $perPage, $total);
+
+        $opening = $query->openingBalances()[$accountId] ?? 0.0;
+        $periodTotals = $query->periodTotals();
+        $closing = $opening + $periodTotals['balance'];
+
+        $prefix = $query->prefixSignedSum($offset);
+        $lines = $query->pageLines($offset, $perPage);
+
+        $running = $opening + $prefix;
+        foreach ($lines as $line) {
+            $running += $line->signedAmount();
+            $line->runningBalance = $running;
+        }
+
+        return new PaginatedAccountStatement(
+            accountId: $accountId,
+            openingBalance: $opening,
+            closingBalance: $closing,
+            periodTotals: $periodTotals,
+            from: $query->resolvedFrom(),
+            to: $query->resolvedTo(),
+            lines: $this->makePaginator($lines, $total, $perPage, $page),
+        );
+    }
+
+    /**
+     * Paginated journal lines for a cost center. Requires LedgerQuery::costCenter($id).
+     * Meta totals cover the full scope; running balance is not applied across accounts.
+     *
+     * @example
+     * Accounting::report()->costCenterStatementPaginated(
+     *     LedgerQuery::make()->costCenter($center)->forFiscalYear($fy),
+     *     page: 1,
+     *     perPage: 20,
+     * );
+     */
+    public function costCenterStatementPaginated(
+        LedgerQuery $query,
+        int $page = 1,
+        ?int $perPage = null
+    ): PaginatedCostCenterStatement {
+        if (! $query->isCostCenterFilterApplied() || $query->costCenterId() === null) {
             throw new InvalidArgumentException(
-                'accountStatement() requires a LedgerQuery scoped to exactly one account via forAccount().'
+                'costCenterStatementPaginated() requires a LedgerQuery scoped via costCenter($id).'
             );
         }
 
-        return $this->buildAccountLedgers($query)->get($accountIds[0])
-            ?? new AccountLedger($accountIds[0], 0.0, collect(), 0.0);
+        $total = $query->countLines();
+        [$page, $perPage, $offset] = $this->resolvePagination($page, $perPage, $total);
+        $lines = $query->pageLines($offset, $perPage);
+
+        return new PaginatedCostCenterStatement(
+            costCenterId: $query->costCenterId(),
+            periodTotals: $query->periodTotals(),
+            from: $query->resolvedFrom(),
+            to: $query->resolvedTo(),
+            lines: $this->makePaginator($lines, $total, $perPage, $page),
+        );
+    }
+
+    /**
+     * Level-1 general ledger: paginate posting accounts with opening / period / closing
+     * aggregates. Drill into accountStatementPaginated() for lines.
+     *
+     * @example
+     * Accounting::report()->generalLedgerSummary(
+     *     LedgerQuery::make()->forFiscalYear($fy)->branch($branchId),
+     *     page: 1,
+     *     perPage: 20,
+     * );
+     */
+    public function generalLedgerSummary(
+        LedgerQuery $query,
+        int $page = 1,
+        ?int $perPage = null
+    ): PaginatedGeneralLedgerSummary {
+        $accountIds = $this->resolveAccountIds($query);
+        $query = (clone $query)->forAccounts($accountIds);
+
+        $accounts = Account::query()
+            ->whereIn('id', $accountIds)
+            ->orderBy('code')
+            ->get(['id', 'code', 'title'])
+            ->keyBy('id');
+
+        $orderedIds = $accounts->keys()->all();
+        $total = count($orderedIds);
+        [$page, $perPage, $offset] = $this->resolvePagination($page, $perPage, $total);
+
+        $pageIds = array_slice($orderedIds, $offset, $perPage);
+        $pageQuery = (clone $query)->forAccounts($pageIds);
+        $openings = $pageQuery->openingBalances();
+        $periodByAccount = $pageQuery->periodTotalsByAccount();
+
+        $rows = collect($pageIds)->map(function (int $accountId) use ($accounts, $openings, $periodByAccount) {
+            $account = $accounts->get($accountId);
+            $opening = $openings[$accountId] ?? 0.0;
+            $period = $periodByAccount[$accountId] ?? ['debit' => 0.0, 'credit' => 0.0];
+
+            return new GeneralLedgerSummaryRow(
+                accountId: $accountId,
+                code: (string) ($account->code ?? ''),
+                title: (string) ($account->title ?? ''),
+                openingBalance: $opening,
+                periodDebit: $period['debit'],
+                periodCredit: $period['credit'],
+                closingBalance: $opening + $period['debit'] - $period['credit'],
+            );
+        });
+
+        return new PaginatedGeneralLedgerSummary(
+            from: $query->resolvedFrom(),
+            to: $query->resolvedTo(),
+            accounts: $this->makePaginator($rows, $total, $perPage, $page),
+        );
     }
 
     /** @return Collection<int, AccountLedger> keyed by account_id */
     private function buildAccountLedgers(LedgerQuery $query): Collection
     {
-        $accountIds = $query->accountIds();
-
-        if ($accountIds === []) {
-            // Match the query's own branch scope — otherwise a branch-filtered
-            // query (documents correctly scoped) would still pull every branch's
-            // accounts into the report via this "no explicit account" fallback.
-            $filters = ['level' => AccountHierarchy::postingLevel()];
-            if ($query->isBranchFilterApplied()) {
-                $filters['branch_id'] = $query->branchId();
-            }
-
-            $accountIds = $this->accountService->search($filters)
-                ->pluck('id')
-                ->all();
-            $query = (clone $query)->forAccounts($accountIds);
-        }
+        $accountIds = $this->resolveAccountIds($query);
+        $query = (clone $query)->forAccounts($accountIds);
 
         $runningBalances = $openings = $query->openingBalances();
         $lines = collect($accountIds)->mapWithKeys(fn (int $id) => [$id => collect()]);
@@ -160,5 +282,73 @@ class ReportService
             lines: $accountLines,
             closingBalance: $runningBalances[$accountId] ?? ($openings[$accountId] ?? 0.0),
         ));
+    }
+
+    /** @return list<int> */
+    private function resolveAccountIds(LedgerQuery $query): array
+    {
+        $accountIds = $query->accountIds();
+
+        if ($accountIds !== []) {
+            return $accountIds;
+        }
+
+        $filters = ['level' => AccountHierarchy::postingLevel()];
+        if ($query->isBranchFilterApplied()) {
+            $filters['branch_id'] = $query->branchId();
+        }
+
+        return $this->accountService->search($filters)
+            ->pluck('id')
+            ->all();
+    }
+
+    private function requireSingleAccountId(LedgerQuery $query): int
+    {
+        $accountIds = $query->accountIds();
+
+        if (count($accountIds) !== 1) {
+            throw new InvalidArgumentException(
+                'This report requires a LedgerQuery scoped to exactly one account via forAccount().'
+            );
+        }
+
+        return $accountIds[0];
+    }
+
+    /**
+     * @return array{0: int, 1: int, 2: int} [page, perPage, offset]
+     */
+    private function resolvePagination(int $page, ?int $perPage, int $total): array
+    {
+        $perPage ??= (int) config('accounting.reports.per_page', 50);
+
+        if ($perPage === -1) {
+            $pageSize = max($total, 1);
+
+            return [1, $pageSize, 0];
+        }
+
+        $pageSize = max(1, $perPage);
+        $page = max(1, $page);
+
+        return [$page, $pageSize, ($page - 1) * $pageSize];
+    }
+
+    /**
+     * @param  Collection<int, mixed>  $items
+     */
+    private function makePaginator(Collection $items, int $total, int $perPage, int $page): LengthAwarePaginator
+    {
+        return new LengthAwarePaginator(
+            $items->values(),
+            $total,
+            max($perPage, 1),
+            $page,
+            [
+                'path' => LengthAwarePaginator::resolveCurrentPath(),
+                'pageName' => 'page',
+            ]
+        );
     }
 }

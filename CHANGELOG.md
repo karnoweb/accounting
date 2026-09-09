@@ -1,5 +1,20 @@
 # Changelog
 
+## [13.7.0] - 2026-09-09
+
+### Added
+
+- **Report pagination foundation** on `LedgerQuery`: `costCenter()`, `countLines()`,
+  `prefixSignedSum()`, `pageLines()`.
+- `ReportService::accountStatementPaginated()` — page of ledger lines with correct
+  mid-stream `runningBalance`; opening/closing/period totals stay global. `$perPage = -1` returns all.
+- `ReportService::costCenterStatementPaginated()` — paginated lines for one cost center.
+- `ReportService::generalLedgerSummary()` — paginated account-level opening/period/closing (no lines).
+- DTOs: `PaginatedAccountStatement`, `PaginatedCostCenterStatement`,
+  `PaginatedGeneralLedgerSummary`, `GeneralLedgerSummaryRow`.
+- `LedgerLine` now exposes optional `cost_center_id`.
+- Dependency: `illuminate/pagination` `^13.0`.
+
 ## [13.6.0] - 2026-09-06
 
 ### Added

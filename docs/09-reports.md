@@ -13,7 +13,10 @@
 1. `trialBalanceDetailed`
 2. `generalLedger`
 3. `accountStatement`
-4. `BalanceService::getTurnover`
+4. `accountStatementPaginated`
+5. `generalLedgerSummary`
+6. `costCenterStatementPaginated`
+7. `BalanceService::getTurnover`
 
 ## پایه مشترک گزارش‌ها: `LedgerQuery`
 
@@ -27,6 +30,7 @@
 - `from()`
 - `to()`
 - `branch()`
+- `costCenter()`
 
 ### رفتارهای ثابت
 
@@ -244,6 +248,18 @@ $turnover = Accounting::balance()->getTurnover($account, $from, $to, [
 
 `balance` برابر `debit - credit` است.
 
+## ۵. گزارش‌های صفحه‌بندی‌شده
+
+Meta گزارش (افتتاحیه، اختتامیه، totals) همیشه از کل scope محاسبه می‌شود؛ فقط ردیف‌ها صفحه می‌شوند.
+
+- `accountStatementPaginated($query, $page, $perPage)` — صورت حساب یک حساب با `runningBalance` صحیح؛ `$perPage = -1` یعنی همه خطوط
+- `generalLedgerSummary($query, $page, $perPage)` — لیست حساب‌ها با opening/period/closing (بدون خطوط)
+- `costCenterStatementPaginated($query, $page, $perPage)` — خطوط یک مرکز هزینه؛ نیاز به `LedgerQuery::costCenter($id)`
+
+خروجی‌ها `LengthAwarePaginator` لاراول دارند تا host با `page_limit` و `Response::dataWithAdditional` سازگار باشد.
+
+Default اندازه صفحه: `config('accounting.reports.per_page', 50)`.
+
 ## گزارش قدیمی: `trialBalance()`
 
 این متد هنوز وجود دارد، اما deprecated است و تراز آزمایشی واقعی محسوب نمی‌شود، چون:
@@ -256,9 +272,9 @@ $turnover = Accounting::balance()->getTurnover($account, $from, $to, [
 
 ## آنچه در گزارش‌های هسته‌ای فعلاً نیست
 
-- فیلتر مستقل Cost Center
 - counterpart resolution برای اسناد چندردیفی
 - صورت سود و زیان نهایی
 - ترازنامه
 - صورت جریان وجه نقد
-- UI، export یا صفحه‌بندی سطح رابط کاربری
+- UI یا export سطح رابط کاربری
+- cursor/keyset pagination (فعلاً offset + prefix sum)

@@ -31,6 +31,7 @@ final class LedgerLine
         public readonly ?int $branchId,
         public readonly int $order,
         public float $runningBalance = 0.0,
+        public readonly ?int $costCenterId = null,
     ) {}
 
     public static function fromRow(object $row): self
@@ -51,6 +52,9 @@ final class LedgerLine
             fiscalYearId: $row->fiscal_year_id !== null ? (int) $row->fiscal_year_id : null,
             branchId: $row->branch_id !== null ? (int) $row->branch_id : null,
             order: (int) $row->item_order,
+            costCenterId: isset($row->cost_center_id) && $row->cost_center_id !== null
+                ? (int) $row->cost_center_id
+                : null,
         );
     }
 
@@ -79,6 +83,7 @@ final class LedgerLine
             'running_balance' => $this->runningBalance,
             'fiscal_year_id' => $this->fiscalYearId,
             'branch_id' => $this->branchId,
+            'cost_center_id' => $this->costCenterId,
             'order' => $this->order,
         ];
     }

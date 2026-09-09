@@ -13,6 +13,7 @@ use Illuminate\Support\LazyCollection;
 use Karnoweb\Accounting\Enums\DocumentStatus;
 use Karnoweb\Accounting\Models\Account;
 use Karnoweb\Accounting\Models\AccountingPeriod;
+use Karnoweb\Accounting\Models\CostCenter;
 use Karnoweb\Accounting\Models\Document;
 use Karnoweb\Accounting\Models\DocumentItem;
 use Karnoweb\Accounting\Models\FiscalYear;
@@ -53,6 +54,10 @@ final class LedgerQuery
     private ?int $branchId = null;
 
     private bool $branchFilterApplied = false;
+
+    private ?int $costCenterId = null;
+
+    private bool $costCenterFilterApplied = false;
 
     public static function make(): self
     {
@@ -133,6 +138,15 @@ final class LedgerQuery
         return $this;
     }
 
+    /** Filter by cost center. Pass null to explicitly scope to lines without a cost center. */
+    public function costCenter(CostCenter|int|null $center): self
+    {
+        $this->costCenterId = $center instanceof CostCenter ? $center->id : ($center !== null ? (int) $center : null);
+        $this->costCenterFilterApplied = true;
+
+        return $this;
+    }
+
     /**
      * Documented no-op: the ledger is always posted-only. Voiding a document moves
      * its status away from 'posted', so a single status filter already excludes it.
@@ -162,6 +176,16 @@ final class LedgerQuery
     public function isBranchFilterApplied(): bool
     {
         return $this->branchFilterApplied;
+    }
+
+    public function costCenterId(): ?int
+    {
+        return $this->costCenterId;
+    }
+
+    public function isCostCenterFilterApplied(): bool
+    {
+        return $this->costCenterFilterApplied;
     }
 
     public function fiscalYearId(): ?int
@@ -221,6 +245,7 @@ final class LedgerQuery
 
         $this->applyAccountFilter($query, $items);
         $this->applyBranchFilter($query, $documents);
+        $this->applyCostCenterFilter($query, $items);
 
         $from = $this->resolvedFrom();
         $to = $this->resolvedTo();
@@ -261,6 +286,7 @@ final class LedgerQuery
 
         $this->applyAccountFilter($query, $items);
         $this->applyBranchFilter($query, $documents);
+        $this->applyCostCenterFilter($query, $items);
 
         if ($this->fiscalYearId !== null) {
             $query->where("{$documents}.fiscal_year_id", $this->fiscalYearId);
@@ -286,6 +312,19 @@ final class LedgerQuery
             $query->whereNull("{$documents}.branch_id");
         } else {
             $query->where("{$documents}.branch_id", $this->branchId);
+        }
+    }
+
+    private function applyCostCenterFilter(QueryBuilder $query, string $items): void
+    {
+        if (! $this->costCenterFilterApplied) {
+            return;
+        }
+
+        if ($this->costCenterId === null) {
+            $query->whereNull("{$items}.cost_center_id");
+        } else {
+            $query->where("{$items}.cost_center_id", $this->costCenterId);
         }
     }
 
@@ -426,6 +465,59 @@ final class LedgerQuery
         });
     }
 
+    /** Total journal lines in the scoped period (posted, ordered scope). */
+    public function countLines(): int
+    {
+        $items = (new DocumentItem)->getTable();
+
+        return (int) $this->baseQuery()->count("{$items}.id");
+    }
+
+    /**
+     * Sum of signed amounts (debit - credit) for the first $offset ordered lines.
+     * Used to resume runningBalance mid-statement without loading prior pages.
+     */
+    public function prefixSignedSum(int $offset): float
+    {
+        if ($offset <= 0) {
+            return 0.0;
+        }
+
+        $items = (new DocumentItem)->getTable();
+        $documents = (new Document)->getTable();
+
+        $sub = $this->baseQuery()
+            ->select(["{$items}.debit", "{$items}.credit"])
+            ->orderBy("{$documents}.date")
+            ->orderBy("{$documents}.number")
+            ->orderBy("{$documents}.id")
+            ->orderBy("{$items}.order")
+            ->orderBy("{$items}.id")
+            ->limit($offset);
+
+        $row = DB::query()
+            ->fromSub($sub, 'skipped')
+            ->selectRaw('COALESCE(SUM(debit - credit), 0) as prefix')
+            ->first();
+
+        return (float) ($row->prefix ?? 0);
+    }
+
+    /**
+     * One page of deterministically ordered journal lines.
+     *
+     * @return Collection<int, LedgerLine>
+     */
+    public function pageLines(int $offset, int $limit): Collection
+    {
+        if ($limit <= 0) {
+            return collect();
+        }
+
+        return collect($this->orderedDetailQuery()->offset(max(0, $offset))->limit($limit)->get())
+            ->map(fn ($row) => LedgerLine::fromRow($row));
+    }
+
     private function orderedDetailQuery(): QueryBuilder
     {
         $items = (new DocumentItem)->getTable();
@@ -436,6 +528,7 @@ final class LedgerQuery
                 "{$items}.id as item_id",
                 "{$items}.document_id",
                 "{$items}.account_id",
+                "{$items}.cost_center_id",
                 "{$items}.debit",
                 "{$items}.credit",
                 "{$items}.order as item_order",
