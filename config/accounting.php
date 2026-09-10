@@ -86,6 +86,23 @@ return [
         // Overlapping ranges are rejected in FiscalYearService (portable across SQLite/MySQL/PostgreSQL).
         // Exact duplicate (start_date, end_date) is also unique at the database.
         'allow_overlap' => false,
+        // When true, more than one fiscal year may be `active` at once (e.g. prior
+        // year still open for tax adjustments while the new year receives sales).
+        // `is_current` still marks the UI/default year; posting resolves by document date.
+        'allow_multiple_active' => true,
+    ],
+
+    'opening' => [
+        // When true, confirm()/post() of opening journals is allowed even after
+        // operational (non-opening) documents have been posted in the target year.
+        'allow_after_posted_activity' => true,
+        // When true, confirm()/post()/completeOpening() refuse while the consecutive
+        // prior fiscal year exists and is not yet `closed`.
+        'require_prior_year_closed_for_confirm' => true,
+        // When true, carryForward() may run from an still-`active` source and only
+        // writes/refreshes DRAFT openings (provisional). Final confirm still follows
+        // require_prior_year_closed_for_confirm.
+        'allow_provisional_carry_forward' => true,
     ],
 
     'period' => [

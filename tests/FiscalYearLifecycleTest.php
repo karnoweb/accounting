@@ -387,6 +387,8 @@ class FiscalYearLifecycleTest extends TestCase
 
     public function test_cannot_activate_second_year_while_another_is_active(): void
     {
+        config(['accounting.fiscal_year.allow_multiple_active' => false]);
+
         $this->service()->activate($this->service()->create([
             'title' => 'FY 2025',
             'start_date' => '2025-01-01',
@@ -708,6 +710,8 @@ class FiscalYearLifecycleTest extends TestCase
             'start_date' => '2027-01-01',
             'end_date' => '2027-12-31',
         ]);
+
+        config(['accounting.fiscal_year.allow_multiple_active' => false]);
 
         try {
             $this->service()->activate($other);

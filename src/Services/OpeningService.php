@@ -19,12 +19,18 @@ use Karnoweb\Accounting\Reporting\LedgerQuery;
 
 /**
  * Opening journals: draft → confirm (or one-shot post()), and carryForward() from a
- * closed source year.
+ * closed source year — or, when configured, a provisional draft carry from an
+ * still-active prior year.
  *
  * The opening for a (fiscal year, branch bucket) starts as `type=opening, status=draft`
  * via saveDraft(). A draft MAY be unbalanced — balance is enforced only when confirm()
  * posts it. `opening_done` is never set by saveDraft(); confirm() sets it once no
  * draft opening remains for the fiscal year (see maybeCompleteOpening()).
+ *
+ * Config (accounting.opening.*):
+ * - allow_after_posted_activity: confirm/post after operational posted docs
+ * - require_prior_year_closed_for_confirm: refuse finalize while prior FY open
+ * - allow_provisional_carry_forward: carryForward from active source → drafts only
  *
  * post() remains a one-shot convenience for existing callers: saveDraft() + confirm()
  * inside one transaction, with the same idempotent-replay behavior it always had.
@@ -113,7 +119,10 @@ class OpeningService
      *
      * - Rejects if no draft (or posted-but-mismatched) document exists for the bucket.
      * - Requires balance (`UnbalancedDocumentException` if not, same as any other post()).
-     * - Requires no posted operational (non-opening) document in the target year yet.
+     * - Unless `opening.allow_after_posted_activity` is true, refuses when operational
+     *   (non-opening) documents are already posted in the target year.
+     * - When `opening.require_prior_year_closed_for_confirm` is true, refuses while the
+     *   consecutive prior fiscal year exists and is not closed.
      * - Already-posted for this bucket: idempotent replay, returns the posted document.
      * - After posting, sets `opening_done` once no draft opening remains for the year
      *   (see maybeCompleteOpening()) — the year need not have only one bucket.
@@ -154,6 +163,7 @@ class OpeningService
                 );
             }
 
+            $this->fiscalYearService->assertPriorYearClosedForOpening($target);
             $this->assertNoPostedOperationalDocuments($target);
 
             $posted = $this->documentService->post($document);
@@ -214,6 +224,7 @@ class OpeningService
                 );
             }
 
+            $this->fiscalYearService->assertPriorYearClosedForOpening($target);
             $this->assertNoPostedOperationalDocuments($target);
 
             $this->saveDraft($target, $items, $branchId);
@@ -223,9 +234,13 @@ class OpeningService
     }
 
     /**
-     * Create/refresh DRAFT permanent-balance openings for the next active year, carried
-     * forward from a closed source year. Does not post and does not set `opening_done`
-     * by itself — call confirm() per bucket (or use post()) to finalize each one.
+     * Create/refresh DRAFT permanent-balance openings for the next active year.
+     *
+     * - Source `closed`: final carry-forward (existing behaviour).
+     * - Source `active` + `allow_provisional_carry_forward`: provisional drafts only;
+     *   never sets `opening_done` by itself. Re-run to refresh drafts after prior-year
+     *   adjustments. Call confirm() only after the prior year is closed (when
+     *   `require_prior_year_closed_for_confirm` is true).
      *
      * A bucket that already has a *posted* opening matching the recomputed plan is left
      * untouched and returned as-is (repeat-safe / crash-recovery-safe). A mismatched
@@ -241,7 +256,7 @@ class OpeningService
             $source = $this->lockFiscalYear($source);
             $target = $this->lockFiscalYear($target);
 
-            $this->assertSourceClosed($source);
+            $provisional = $this->assertSourceAcceptsCarryForward($source);
             $this->assertTargetAcceptsOpening($target);
             $this->assertConsecutive($source, $target);
 
@@ -256,19 +271,27 @@ class OpeningService
 
             if ($expected === []) {
                 $this->assertNoExistingOpenings($target);
-                $this->fiscalYearService->completeOpening($target);
+                // Empty final carry may complete opening; provisional never does.
+                if ( ! $provisional) {
+                    $this->fiscalYearService->assertPriorYearClosedForOpening($target);
+                    $this->fiscalYearService->completeOpening($target);
+                }
 
                 return [];
             }
 
             $documents = [];
             foreach ($expected as $plan) {
-                $documents[] = $this->carryForwardBucket($source, $target, $plan);
+                $documents[] = $this->carryForwardBucket($source, $target, $plan, $provisional);
             }
 
             $this->assertNoPostedOperationalDocuments($target);
 
-            if (collect($documents)->every(fn (Document $document) => $document->isPosted())) {
+            if (
+                ! $provisional
+                && collect($documents)->every(fn (Document $document) => $document->isPosted())
+            ) {
+                $this->fiscalYearService->assertPriorYearClosedForOpening($target);
                 $this->fiscalYearService->completeOpening($target);
             }
 
@@ -279,8 +302,12 @@ class OpeningService
     /**
      * @param  array{branch_id: ?int, items: list<array{account_id: int, amount: float, sign: int}>}  $plan
      */
-    private function carryForwardBucket(FiscalYear $source, FiscalYear $target, array $plan): Document
-    {
+    private function carryForwardBucket(
+        FiscalYear $source,
+        FiscalYear $target,
+        array $plan,
+        bool $provisional
+    ): Document {
         $key = $this->idempotencyKey($target, $plan['branch_id']);
         $existing = Document::query()
             ->with('items.account')
@@ -305,6 +332,7 @@ class OpeningService
             'meta' => [
                 'source_fiscal_year_id' => $source->id,
                 'operation' => 'carry_forward',
+                'provisional' => $provisional,
             ],
         ])->save();
 
@@ -374,14 +402,26 @@ class OpeningService
         }
     }
 
-    private function assertSourceClosed(FiscalYear $source): void
+    /**
+     * @return bool True when this carry-forward is provisional (source still active).
+     */
+    private function assertSourceAcceptsCarryForward(FiscalYear $source): bool
     {
-        if ( ! $source->isClosed()) {
-            throw new FiscalYearStateException(
-                $source,
-                __('accounting::accounting.messages.opening_source_not_closed')
-            );
+        if ($source->isClosed()) {
+            return false;
         }
+
+        if (
+            $source->isActive()
+            && config('accounting.opening.allow_provisional_carry_forward', true)
+        ) {
+            return true;
+        }
+
+        throw new FiscalYearStateException(
+            $source,
+            __('accounting::accounting.messages.opening_source_not_closed')
+        );
     }
 
     private function assertTargetAcceptsOpening(FiscalYear $fiscalYear): void
@@ -413,6 +453,10 @@ class OpeningService
 
     private function assertNoPostedOperationalDocuments(FiscalYear $fiscalYear): void
     {
+        if (config('accounting.opening.allow_after_posted_activity', true)) {
+            return;
+        }
+
         if ($this->hasPostedOperationalDocuments($fiscalYear)) {
             throw new FiscalYearStateException(
                 $fiscalYear,

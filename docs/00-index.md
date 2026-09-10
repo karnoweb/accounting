@@ -7,7 +7,7 @@
 | مورد | مقدار |
 |------|-------|
 | نام پکیج | `karnoweb/laravel-accounting` |
-| نسخه فعلی | `13.6.0` |
+| نسخه فعلی | `13.8.0` |
 | PHP | `^8.3` |
 | Laravel | `^13.0` |
 | الگوی حسابداری | Double-Entry |
@@ -43,9 +43,10 @@
 3. [04-database-schema.md](04-database-schema.md) — جداول، روابط و محدودیت‌ها
 4. [09-reports.md](09-reports.md) — منبع داده و منطق گزارش‌ها
 5. [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md) — چرخه کامل سال مالی
-6. [12-security.md](12-security.md) — Audit، تغییرناپذیری و محدودیت‌ها
-7. [15-appendix.md](15-appendix.md) — واژه‌نامه، تفاوت مفاهیم مشابه و FAQ
-8. [16-documentation-gaps.md](16-documentation-gaps.md) — شکاف‌های مستندسازی و موارد نیازمند تصمیم انسانی
+6. [17-multi-active-years-and-opening.md](17-multi-active-years-and-opening.md) — چندسال هم‌زمان، افتتاحیه دیرهنگام و carry موقت (فارسی روان)
+7. [12-security.md](12-security.md) — Audit، تغییرناپذیری و محدودیت‌ها
+8. [15-appendix.md](15-appendix.md) — واژه‌نامه، تفاوت مفاهیم مشابه و FAQ
+9. [16-documentation-gaps.md](16-documentation-gaps.md) — شکاف‌های مستندسازی و موارد نیازمند تصمیم انسانی
 
 ## نقشه واقعی ماژول‌ها
 

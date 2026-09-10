@@ -496,6 +496,7 @@ class ClosingServiceTest extends TestCase
             'start_date' => '2028-01-01',
             'end_date' => '2028-12-31',
         ]);
+        config(['accounting.opening.allow_provisional_carry_forward' => false]);
         try {
             $this->opening()->carryForward($source2, $draftTarget);
             $this->fail('Open source must still reject carry-forward');

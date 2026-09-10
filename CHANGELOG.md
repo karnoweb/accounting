@@ -1,5 +1,36 @@
 # Changelog
 
+## [13.8.0] - 2026-09-10
+
+### Added
+
+- **Multiple active fiscal years** via `accounting.fiscal_year.allow_multiple_active`
+  (default `true`). Activating a new year no longer requires closing the prior one;
+  the new year becomes `is_current` while older actives may stay open for adjustments.
+- `FiscalYearService::setCurrent()` / `FiscalYear::setCurrent()` — UI/default year pointer.
+- `FiscalYearService::findPriorConsecutive()` and
+  `assertPriorYearClosedForOpening()`.
+- On `close()` of the current year, the latest remaining active year is promoted to
+  `is_current`.
+- **Opening policy config** under `accounting.opening`:
+  - `allow_after_posted_activity` (default `true`)
+  - `require_prior_year_closed_for_confirm` (default `true`)
+  - `allow_provisional_carry_forward` (default `true`)
+- Provisional `carryForward()` from an still-active source writes/refreshes draft
+  openings with `meta.provisional = true` and never finalizes `opening_done` alone.
+- Persian guide: [docs/17-multi-active-years-and-opening.md](docs/17-multi-active-years-and-opening.md).
+- Tests: `tests/MultiActiveOpeningPolicyTest.php`.
+
+### Changed
+
+- `DocumentService` year resolution: when a document `date` is present and
+  `auto_detect` is on, a missing match throws `no_fiscal_year_for_date` instead of
+  falling back to `current()`.
+- `OpeningService::confirm()` / `post()` / `completeOpening()` honor the prior-year
+  closed gate and the after-activity config.
+- `OpeningService::carryForward()` accepts an active source when provisional carry
+  is enabled.
+
 ## [13.7.0] - 2026-09-09
 
 ### Added

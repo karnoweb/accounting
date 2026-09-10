@@ -295,11 +295,16 @@ class DocumentService
             return FiscalYear::findOrFail($data['fiscal_year_id']);
         }
 
+        // Prefer the year that contains the document date. Never fall back to
+        // current() when a date was given but matched no year — that would hide
+        // cross-year mistakes when multiple years are active.
         if (config('accounting.fiscal_year.auto_detect', true) && ! empty($data['date'])) {
             $fiscalYear = FiscalYear::findByDate($data['date']);
             if ($fiscalYear) {
                 return $fiscalYear;
             }
+
+            throw new RuntimeException(__('accounting::accounting.messages.no_fiscal_year_for_date'));
         }
 
         $current = FiscalYear::current();

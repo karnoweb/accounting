@@ -21,7 +21,7 @@ use Throwable;
 
 /**
  * Authoritative fiscal-year lifecycle: create (draft), update, activate, close,
- * completeOpening, revertOpening.
+ * setCurrent, completeOpening, revertOpening.
  *
  * completeOpening()/revertOpening() write only the opening_done flag.
  * Opening journals, carry-forward, and P&L close are not implemented here.
@@ -29,12 +29,17 @@ use Throwable;
  * On activate(), when the year has no AccountingPeriods yet, a full-year OPEN
  * period is ensured so posting has a canonical period gate.
  * On close(), every OPEN AccountingPeriod for the year is closed.
+ *
+ * When `accounting.fiscal_year.allow_multiple_active` is true, more than one
+ * year may be `active`; `is_current` is the UI/default pointer and posting
+ * still resolves by document date via findByDate().
  */
 class FiscalYearService
 {
     public function __construct(
         private AccountingPeriodService $periodService
     ) {}
+
     /** @var list<string> */
     private const LIFECYCLE_FIELDS = [
         'status',
@@ -44,7 +49,7 @@ class FiscalYearService
         'closed_at',
     ];
 
-    /** Get the currently active fiscal year, or null. Closed years are never returned. */
+    /** Get the current (is_current) active fiscal year, or null. Closed years are never returned. */
     public function current(): ?FiscalYear
     {
         return FiscalYear::current();
@@ -58,6 +63,71 @@ class FiscalYearService
     public function findByDate(string $date): ?FiscalYear
     {
         return FiscalYear::findByDate($date);
+    }
+
+    /**
+     * The fiscal year whose end_date is exactly the day before $fiscalYear->start_date,
+     * or null when this is the first year in the chain.
+     */
+    public function findPriorConsecutive(FiscalYear|int $fiscalYear): ?FiscalYear
+    {
+        $fiscalYear = $this->resolve($fiscalYear);
+        $priorEnd = Carbon::parse($fiscalYear->start_date)->subDay()->toDateString();
+
+        return FiscalYear::query()->whereDate('end_date', $priorEnd)->first();
+    }
+
+    /**
+     * When `opening.require_prior_year_closed_for_confirm` is true, refuse finalizing
+     * the opening of $fiscalYear while a consecutive prior year exists and is not closed.
+     */
+    public function assertPriorYearClosedForOpening(FiscalYear $fiscalYear): void
+    {
+        if ( ! config('accounting.opening.require_prior_year_closed_for_confirm', true)) {
+            return;
+        }
+
+        $prior = $this->findPriorConsecutive($fiscalYear);
+        if ($prior !== null && ! $prior->isClosed()) {
+            throw new FiscalYearStateException(
+                $fiscalYear,
+                __('accounting::accounting.messages.opening_prior_year_not_closed')
+            );
+        }
+    }
+
+    /**
+     * Mark an active fiscal year as the UI/default (`is_current`). Does not close others.
+     */
+    public function setCurrent(FiscalYear|int $fiscalYear): FiscalYear
+    {
+        return DB::transaction(function () use ($fiscalYear) {
+            $this->lockAllFiscalYears();
+            $fiscalYear = $this->lockFiscalYear($fiscalYear);
+
+            if ($fiscalYear->isClosed()) {
+                throw new FiscalYearStateException(
+                    $fiscalYear,
+                    __('accounting::accounting.messages.fiscal_year_cannot_set_current_closed')
+                );
+            }
+
+            if ( ! $fiscalYear->isActive()) {
+                throw new FiscalYearStateException(
+                    $fiscalYear,
+                    __('accounting::accounting.messages.fiscal_year_not_active')
+                );
+            }
+
+            FiscalYear::query()
+                ->where('is_current', true)
+                ->whereKeyNot($fiscalYear->id)
+                ->update(['is_current' => false]);
+
+            $fiscalYear->update(['is_current' => true]);
+
+            return $fiscalYear->fresh();
+        });
     }
 
     /**
@@ -227,16 +297,18 @@ class FiscalYearService
                 );
             }
 
-            $otherActive = FiscalYear::query()
-                ->where('status', FiscalYearStatus::ACTIVE)
-                ->whereKeyNot($fiscalYear->id)
-                ->first();
+            if ( ! config('accounting.fiscal_year.allow_multiple_active', true)) {
+                $otherActive = FiscalYear::query()
+                    ->where('status', FiscalYearStatus::ACTIVE)
+                    ->whereKeyNot($fiscalYear->id)
+                    ->first();
 
-            if ($otherActive) {
-                throw new FiscalYearStateException(
-                    $fiscalYear,
-                    __('accounting::accounting.messages.fiscal_year_another_active')
-                );
+                if ($otherActive) {
+                    throw new FiscalYearStateException(
+                        $fiscalYear,
+                        __('accounting::accounting.messages.fiscal_year_another_active')
+                    );
+                }
             }
 
             $this->assertNoOverlap(
@@ -245,6 +317,7 @@ class FiscalYearService
                 $fiscalYear->id
             );
 
+            // Newly activated year becomes the UI default; older actives may remain open.
             FiscalYear::query()
                 ->where('is_current', true)
                 ->whereKeyNot($fiscalYear->id)
@@ -322,12 +395,18 @@ class FiscalYearService
 
             $this->periodService->closeOpenPeriodsForFiscalYear($fiscalYear);
 
+            $wasCurrent = (bool) $fiscalYear->is_current;
+
             $fiscalYear->update([
                 'status' => FiscalYearStatus::CLOSED,
                 'is_current' => false,
                 'closed_at' => now(),
                 'opening_done' => $openingDone,
             ]);
+
+            if ($wasCurrent) {
+                $this->promoteLatestActiveAsCurrent();
+            }
 
             return $fiscalYear->fresh();
         });
@@ -343,6 +422,7 @@ class FiscalYearService
             $fiscalYear = $this->lockFiscalYear($fiscalYear);
 
             $this->assertActiveForOpeningFlag($fiscalYear, 'fiscal_year_cannot_complete_opening');
+            $this->assertPriorYearClosedForOpening($fiscalYear);
 
             if ($fiscalYear->opening_done) {
                 return $fiscalYear;
@@ -552,6 +632,32 @@ class FiscalYearService
             ->where('status', DocumentStatus::POSTED->value)
             ->where('type', 'opening')
             ->exists();
+    }
+
+    /**
+     * After the current year closes, point is_current at the remaining active year
+     * with the latest start_date (typically the newest open year).
+     */
+    private function promoteLatestActiveAsCurrent(): void
+    {
+        $alreadyCurrent = FiscalYear::query()
+            ->where('status', FiscalYearStatus::ACTIVE)
+            ->where('is_current', true)
+            ->exists();
+
+        if ($alreadyCurrent) {
+            return;
+        }
+
+        $next = FiscalYear::query()
+            ->where('status', FiscalYearStatus::ACTIVE)
+            ->orderByDesc('start_date')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($next) {
+            $next->update(['is_current' => true]);
+        }
     }
 
     private function isExactRangeConflict(QueryException $e): bool

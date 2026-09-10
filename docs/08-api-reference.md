@@ -133,11 +133,14 @@ use Karnoweb\Accounting\Facades\Accounting;
 | `findByDate(string $date)` | یافتن سال بر اساس تاریخ |
 | `create(array $data)` | ایجاد draft |
 | `update(FiscalYear|int $fiscalYear, array $data)` | ویرایش؛ از ۱۳.۵.۰: `start_date` فقط در `draft` بدون سند، `end_date` در `draft`/`active` تا `>= latestDocumentDate()` |
-| `activate(FiscalYear|int $fiscalYear)` | فعال‌سازی |
+| `activate(FiscalYear|int $fiscalYear)` | فعال‌سازی؛ با `allow_multiple_active` چند سال می‌توانند هم‌زمان active باشند و این سال `is_current` می‌شود |
+| `setCurrent(FiscalYear|int $fiscalYear)` | تعیین سال پیش‌فرض UI (`is_current`) بدون بستن بقیه |
+| `findPriorConsecutive(FiscalYear|int $fiscalYear)` | سال متوالی قبلی (`end_date = start_date - 1 روز`) یا `null` |
 | `validateCanClose(FiscalYear|int $fiscalYear)` | پیش‌بررسی بستن |
-| `close(FiscalYear|int $fiscalYear)` | بستن سال |
-| `completeOpening(FiscalYear|int $fiscalYear)` | تکمیل فلگ افتتاحیه |
+| `close(FiscalYear|int $fiscalYear)` | بستن سال؛ اگر `is_current` بود، active باقی‌مانده promote می‌شود |
+| `completeOpening(FiscalYear|int $fiscalYear)` | تکمیل فلگ افتتاحیه (با گیت سال قبلی در صورت کانفیگ) |
 | `revertOpening(FiscalYear|int $fiscalYear)` | برگشت فلگ افتتاحیه |
+| `assertPriorYearClosedForOpening(FiscalYear $fiscalYear)` | گیت قطعی‌سازی افتتاحیه نسبت به سال قبل |
 | `assertAcceptsPosting(FiscalYear $fiscalYear, string $date)` | primitive داخلی ثبت |
 | `assertNoOverlap(string $startDate, string $endDate, ?int $exceptId = null)` | کنترل هم‌پوشانی |
 | `latestDocumentDate(FiscalYear $fiscalYear)` | `?string` — آخرین `documents.date` (هر وضعیتی) این سال، یا `null` |
@@ -169,7 +172,8 @@ use Karnoweb\Accounting\Facades\Accounting;
 `type` و `branchId` در signature هستند، اما در تصمیم‌گیری امروز نقشی ندارند.
 ## `OpeningService`
 
-از ۱۳.۵.۰ افتتاحیه دو مرحله‌ای است: `saveDraft()` یک سند `type=opening, status=draft` (احتمالاً نامتوازن) می‌سازد؛ `confirm()` همان سند را در جا به `posted` تبدیل می‌کند (تعادل و عدم وجود سند عملیاتی ثبت‌شده را در همین مرحله بررسی می‌کند) و `opening_done` را وقتی هیچ افتتاحیه‌ی draft دیگری برای سال باقی نماند، `true` می‌کند.
+از ۱۳.۵.۰ افتتاحیه دو مرحله‌ای است: `saveDraft()` پیش‌نویس می‌سازد؛ `confirm()` آن را قطعی می‌کند.
+از ۱۳.۸.۰ رفتار با کانفیگ `accounting.opening.*` کنترل می‌شود (اجازه بعد از عملیات، الزام بسته بودن سال قبل، carry موقت). جزئیات فارسی: [17-multi-active-years-and-opening.md](17-multi-active-years-and-opening.md).
 
 | متد | شرح |
 |-----|-----|
@@ -178,7 +182,7 @@ use Karnoweb\Accounting\Facades\Accounting;
 | `confirm(FiscalYear|int $target, ?int $branchId = null)` | ثبت قطعی افتتاحیهٔ `draft` همان باکت (نیازمند تعادل) |
 | `find(FiscalYear|int $target, ?int $branchId = null)` | افتتاحیهٔ `draft` یا `posted` این باکت، یا `null` |
 | `post(FiscalYear|int $target, array $items, ?int $branchId = null)` | یک‌مرحله‌ای (سازگاری قدیم) — معادل `saveDraft()` + `confirm()` |
-| `carryForward(FiscalYear|int $source, FiscalYear|int $target)` | ساخت/به‌روزرسانی افتتاحیه‌های `draft` از سال بسته؛ `confirm()` هر باکت را جدا قطعی می‌کند |
+| `carryForward(FiscalYear|int $source, FiscalYear|int $target)` | draft از سال `closed` (نهایی) یا از سال `active` (موقت، اگر کانفیگ اجازه دهد) |
 
 ## `ClosingService`
 

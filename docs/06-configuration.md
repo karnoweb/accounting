@@ -104,11 +104,30 @@ return [
 
 | کلید | پیش‌فرض | توضیح |
 |------|---------|-------|
-| `auto_detect` | `true` | تلاش برای یافتن FY از روی تاریخ |
-| `default_id` | `null` | در config وجود دارد، اما `DocumentService` امروز عملاً ابتدا `findByDate()` و بعد `current()` را استفاده می‌کند |
-| `allow_overlap` | `false` | اجازه هم‌پوشانی سال‌های مالی |
+| `auto_detect` | `true` | یافتن FY از روی تاریخ سند |
+| `default_id` | `null` | رزرو شده؛ مسیر اصلی resolve همان `findByDate` است |
+| `allow_overlap` | `false` | اجازه هم‌پوشانی بازهٔ تاریخی سال‌ها |
+| `allow_multiple_active` | `true` | چند سال هم‌زمان `active` (سال قبل باز برای اصلاح، سال جدید برای عملیات) |
 
-اگر `allow_overlap = false` باشد، `FiscalYearService::assertNoOverlap()` هم‌پوشانی را رد می‌کند.
+اگر تاریخ سند داده شود و سالی پیدا نشود، خطای `no_fiscal_year_for_date` پرتاب می‌شود و به `current()` fallback نمی‌شود.
+
+اگر `allow_multiple_active = false` باشد، `activate()` سال دوم را تا بستن سال اول رد می‌کند.
+
+## `opening`
+
+| کلید | پیش‌فرض | توضیح |
+|------|---------|-------|
+| `allow_after_posted_activity` | `true` | اجازهٔ `confirm`/`post` افتتاحیه بعد از اسناد عملیاتی posted |
+| `require_prior_year_closed_for_confirm` | `true` | تا بسته شدن سال متوالی قبلی، قطعی‌سازی افتتاحیه ممنوع |
+| `allow_provisional_carry_forward` | `true` | `carryForward` از سال هنوز `active` فقط به‌صورت draft موقت |
+
+راهنمای فارسی کامل: [17-multi-active-years-and-opening.md](17-multi-active-years-and-opening.md).
+
+## `period`
+
+| کلید | پیش‌فرض | توضیح |
+|------|---------|-------|
+| `auto_create_on_activate` | `true` | ساخت دورهٔ باز تمام‌سال هنگام activate |
 
 ## `balance`
 

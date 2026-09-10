@@ -206,6 +206,8 @@ class OpeningServiceTest extends TestCase
 
     public function test_posted_operational_document_blocks_opening(): void
     {
+        config(['accounting.opening.allow_after_posted_activity' => false]);
+
         $fy = $this->activeYear();
         $chart = $this->createPostableChart();
         $this->documents()->post($this->documents()->create([
@@ -404,6 +406,8 @@ class OpeningServiceTest extends TestCase
 
     public function test_confirm_with_posted_operational_document_fails(): void
     {
+        config(['accounting.opening.allow_after_posted_activity' => false]);
+
         $fy = $this->activeYear();
         $chart = $this->createPostableChart();
         $this->opening()->saveDraft($fy, $this->balancedItems($chart['detail'], $chart['detail2'], 40));

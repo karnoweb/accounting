@@ -117,6 +117,7 @@ class OpeningCarryForwardTest extends TestCase
         $this->assertSame('opening:'.$target->id.':branch:none', $draft->idempotency_key);
         $this->assertSame($source->id, $draft->meta['source_fiscal_year_id']);
         $this->assertSame('carry_forward', $draft->meta['operation']);
+        $this->assertFalse($draft->meta['provisional']);
         $this->assertFalse($target->fresh()->opening_done);
 
         $document = $this->opening()->confirm($target);
@@ -148,12 +149,13 @@ class OpeningCarryForwardTest extends TestCase
 
     public function test_source_active_is_rejected(): void
     {
-        $source = $this->activateYear('FY 2025', '2025-01-01', '2025-12-31');
-        $target = $this->years()->create([
-            'title' => 'FY 2026',
-            'start_date' => '2026-01-01',
-            'end_date' => '2026-12-31',
+        config([
+            'accounting.opening.allow_provisional_carry_forward' => false,
+            'accounting.fiscal_year.allow_multiple_active' => true,
         ]);
+
+        $source = $this->activateYear('FY 2025', '2025-01-01', '2025-12-31');
+        $target = $this->activateYear('FY 2026', '2026-01-01', '2026-12-31');
 
         $this->expectException(FiscalYearStateException::class);
         $this->opening()->carryForward($source, $target);
@@ -559,6 +561,8 @@ class OpeningCarryForwardTest extends TestCase
 
     public function test_posted_operational_document_rejects(): void
     {
+        config(['accounting.opening.allow_after_posted_activity' => false]);
+
         $source = $this->activateYear('FY 2025', '2025-01-01', '2025-12-31');
         $chart = $this->createPostableChart();
         $this->postInYear($source, $chart['detail'], $chart['detail2'], 40);

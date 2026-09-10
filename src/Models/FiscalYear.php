@@ -211,4 +211,12 @@ class FiscalYear extends BaseModel
     {
         return app(FiscalYearService::class)->revertOpening($this);
     }
+
+    /**
+     * Mark this active year as the UI/default (`is_current`) via the canonical service.
+     */
+    public function setCurrent(): self
+    {
+        return app(FiscalYearService::class)->setCurrent($this);
+    }
 }

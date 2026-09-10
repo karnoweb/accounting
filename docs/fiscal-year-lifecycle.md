@@ -1,9 +1,12 @@
 # Fiscal Year Lifecycle
 
-Package version: **13.5.0**
+Package version: **13.8.0**
 
 This document describes the fiscal-year lifecycle implemented by `FiscalYearService`.
 It matches the code. Features listed under [Not implemented](#not-implemented) are intentionally absent.
+
+For the Persian product guide on multiple active years, late opening confirm, and
+provisional carry-forward, see [17-multi-active-years-and-opening.md](17-multi-active-years-and-opening.md).
 
 ---
 
@@ -43,12 +46,13 @@ Manual opening and carry-forward live on `OpeningService`. P&L close lives on `C
 |------|-----------|----|--------|
 | — | `create()` | `draft` | `is_current = false`, `opening_done = false` |
 | `draft` | `update()` | `draft` | title, `start_date`, `end_date` (only while the year has zero documents); dates re-check overlap |
-| `draft` | `activate()` | `active` | sets `is_current`, `opened_at`; refuses if another FY is already `active` |
+| `draft` | `activate()` | `active` | sets `is_current`, `opened_at`; if `allow_multiple_active=false`, refuses when another FY is already `active` |
 | `active` | `activate()` | `active` | idempotent; does not reset `opened_at` |
+| `active` | `setCurrent()` | `active` | UI/default pointer only; clears `is_current` on others |
 | `active` | `update()` | `active` | title and **`end_date` only** (`>= start_date`, `>= latestDocumentDate()`); `start_date` is locked once active |
-| `active` | `completeOpening()` | `active` | sets `opening_done = true`; idempotent if already true; no journals |
+| `active` | `completeOpening()` | `active` | sets `opening_done = true`; may require prior consecutive FY closed (config); no journals |
 | `active` | `revertOpening()` | `active` | sets `opening_done = false` only if no posted `type=opening` document remains; idempotent if already false |
-| `active` | `close()` | `closed` | after `validateCanClose()`; sets `closed_at`, clears `is_current` |
+| `active` | `close()` | `closed` | after `validateCanClose()`; sets `closed_at`, clears `is_current`; promotes another active year if needed |
 | `closed` | anything mutating | — | rejected (`FiscalYearStateException`) |
 
 Closed years **cannot be reopened**. There is no `reopen()` method. Calling `activate()` on a closed year throws `FiscalYearStateException`.
