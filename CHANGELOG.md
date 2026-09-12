@@ -1,5 +1,16 @@
 # Changelog
 
+## [13.11.1] - 2026-09-12
+
+### Fixed
+
+- MySQL 1553 when migrating `numbering_bucket`: InnoDB can use
+  `acc_documents_fiscal_year_id_number_unique` as the supporting index for
+  `acc_documents.fiscal_year_id` FK, so dropping that unique fails.
+  The migration now adds a dedicated `fiscal_year_id` index first, creates
+  the new unique, then drops the old one. Re-running is safe if the column
+  was already added by a failed attempt.
+
 ## [13.11.0] - 2026-09-12
 
 ### Added

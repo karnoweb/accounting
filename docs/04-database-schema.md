@@ -331,6 +331,7 @@ Unique: `(fiscal_year_id, start_date, end_date)`. دوره بسته دوباره
 |-----|----------|-----|-----|
 | PRIMARY | id | Primary | کلید اصلی |
 | acc_documents_fy_bucket_number_unique | fiscal_year_id, numbering_bucket, number | Unique | یکتایی شماره در سال و سطل |
+| acc_documents_fiscal_year_id_fk_support | fiscal_year_id | Index | پشتیبان FK سال مالی روی MySQL (وقتی unique مرکب قبلی حذف می‌شود) |
 | documents_fiscal_year_id_foreign | fiscal_year_id | Foreign | رابطه سال مالی |
 | documents_accounting_period_id_index | accounting_period_id | Index / FK | دوره ثبت (`nullOnDelete`) |
 | acc_documents_idempotency_key_unique | idempotency_key | Unique | یکتایی retry (چند NULL مجاز) |
