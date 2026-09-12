@@ -1,5 +1,41 @@
 # Changelog
 
+## [13.11.0] - 2026-09-12
+
+### Added
+
+- Shared report filter contract `LedgerReportFilters` + `BranchScope` +
+  `ReportPagination` / `PaginationMeta` / `ReportMeta`.
+- Branch modes are mutually exclusive: `branch_id`, `branch_ids[]`,
+  `all_branches=true`. Optional `include_branch_breakdown`.
+  `branch_id=null` is not treated as all branches.
+- Advanced reports on the existing `LedgerQuery` foundation (posted ledger,
+  not `cached_balance`):
+  - `Accounting::report()->accountTurnover()`
+  - `Accounting::report()->journalBook()` (document-level cursor pagination)
+  - `Accounting::report()->dailyJournal()` (`day` / `day_branch` / …)
+  - `Accounting::report()->periodClosing()` (read-only readiness)
+  - `Accounting::report()->comparePeriods()` (aligned Account Turnover)
+- Financial vs audit listing mode. Official totals stay posted-only.
+- Cursor pagination default for large sequential reports; `per_page` bounded
+  1–200. `page_totals` vs `report_totals` are separate.
+- AR/AP aging extension: `AgingSourceProvider`. Native aging is not advertised;
+  missing provider throws `AgingUnavailableException`.
+- Indexes: `documents(status, type, date)`,
+  `document_items(cost_center_id, document_id)`.
+- Docs: [docs/21-advanced-reports.md](docs/21-advanced-reports.md).
+- Tests: filter validation, each report, cross-report reconciliation, aging
+  contract.
+
+### Compatibility
+
+- Trial Balance, General Ledger, P&L, Balance Sheet, cash movements, opening,
+  closing, reversal, and void APIs are unchanged.
+- `LedgerQuery::branch()` / `costCenter()` keep their previous meaning.
+  New methods (`branches()`, `allBranches()`, `listingQuery()`, …) are additive.
+- Authorization remains delegated to the host. `all_branches` means every
+  branch in the caller's accounting/connection scope.
+
 ## [13.10.0] - 2026-09-12
 
 ### Added

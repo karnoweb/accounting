@@ -154,7 +154,10 @@ return [
 
 | کلید | پیش‌فرض | توضیح |
 |------|---------|-------|
-| `per_page` | `50` | اندازهٔ پیش‌فرض صفحه در `ReportService::resolvePagination()` برای گزارش‌های paginated |
+| `per_page` | `50` | اندازهٔ پیش‌فرض صفحه |
+| `per_page_min` | `1` | کف `per_page` گزارش‌های پیشرفته |
+| `per_page_max` | `200` | سقف `per_page`؛ مقدارهایی مثل `1000000` رد می‌شوند |
+| `pagination_default` | `cursor` | پیش‌فرض گزارش‌های ترتیبی جدید؛ صورت‌حساب تک‌حساب همچنان offset است |
 | `cash_system_keys` | `['cash', 'bank', 'gateway_clearing']` | کلیدهای `account.system_accounts` که `cashMovements()` آن‌ها را حساب نقد می‌داند. از عنوان یا کد حساب استنتاج نمی‌شود. |
 
 ## پیشنهاد پیکربندی اولیه

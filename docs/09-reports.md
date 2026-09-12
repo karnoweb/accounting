@@ -20,8 +20,15 @@
 8. `generalLedgerSummary`
 9. `costCenterStatementPaginated`
 10. `BalanceService::getTurnover`
+11. `accountTurnover`
+12. `journalBook`
+13. `dailyJournal`
+14. `periodClosing`
+15. `comparePeriods`
+16. `receivableAging` / `payableAging` — فقط با `AgingSourceProvider` میزبان
 
 صورت‌های مالی: [20-financial-statements.md](20-financial-statements.md).
+گزارش‌های پیشرفته (فیلتر مشترک، شعبه، cursor): [21-advanced-reports.md](21-advanced-reports.md).
 
 ## پایه مشترک گزارش‌ها: `LedgerQuery`
 
@@ -35,9 +42,10 @@
 - `forAccountingPeriod()` — پنجره را به `start_date`/`end_date` دوره محدود می‌کند و FY را از همان دوره می‌گیرد
 - `from()`
 - `to()`
-- `branch()`
-- `costCenter()`
+- `branch()` / `branches()` / `allBranches()`
+- `costCenter()` / `costCenters()`
 - `excludeDocumentTypes()` — حذف نوع سند posted از دوره و افتتاحیه (سود و زیان برای نادیده گرفتن `closing` از آن استفاده می‌کند)
+- `includeDocumentTypes()` / `search()` / `accountType()` / `mode()` / `listingQuery()` — گزارش‌های پیشرفته؛ جمع مالی همچنان `baseQuery()` posted-only است
 
 ### رفتارهای ثابت
 
@@ -287,10 +295,14 @@ Default اندازه صفحه: `config('accounting.reports.per_page', 50)`.
 
 جزئیات، معادلهٔ ترازنامه، و محدودیت جریان نقد: [20-financial-statements.md](20-financial-statements.md).
 
+گزارش‌های ۱۳.۱۱.۰ (`accountTurnover`, `journalBook`, `dailyJournal`, `periodClosing`, `comparePeriods`) روی `LedgerReportFilters` هستند و `LedgerQuery` را برای posted-only / افتتاحیه / شعبه گسترش می‌دهند، نه یک موتور جدا.
+
 ## آنچه در گزارش‌های هسته‌ای فعلاً نیست
 
 - counterpart resolution برای اسناد چندردیفی
 - صورت جریان وجه نقد کامل (عملیاتی / سرمایه‌گذاری / تأمین مالی)
-- مقایسهٔ خودکار دورهٔ قبل / واریانس
+- AR/AP Aging بومی (دفتر due_date و طرف حساب ندارد؛ قرارداد `AgingSourceProvider`)
 - UI یا export سطح رابط کاربری
-- cursor/keyset pagination (فعلاً offset + prefix sum)
+- snapshot isolation برای cursor روی دفتر زنده
+
+صفحه‌بندی offset + prefix sum برای صورت‌حساب تک‌حساب همچنان هست. گزارش‌های ترتیبی جدید پیش‌فرض cursor دارند.

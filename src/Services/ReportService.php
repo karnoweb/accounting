@@ -11,18 +11,35 @@ use InvalidArgumentException;
 use Karnoweb\Accounting\Models\Account;
 use Karnoweb\Accounting\Models\FiscalYear;
 use Karnoweb\Accounting\Reporting\AccountLedger;
+use Karnoweb\Accounting\Reporting\AccountTurnoverReport;
+use Karnoweb\Accounting\Reporting\AccountTurnoverResult;
+use Karnoweb\Accounting\Reporting\Aging\AgingFilters;
+use Karnoweb\Accounting\Reporting\Aging\AgingReport;
+use Karnoweb\Accounting\Reporting\Aging\AgingReportResult;
+use Karnoweb\Accounting\Reporting\Aging\AgingSourceProvider;
+use Karnoweb\Accounting\Reporting\Aging\AgingUnavailableException;
 use Karnoweb\Accounting\Reporting\BalanceSheetReport;
 use Karnoweb\Accounting\Reporting\CashAccountResolver;
 use Karnoweb\Accounting\Reporting\CashMovementReport;
+use Karnoweb\Accounting\Reporting\ComparativePeriodReport;
+use Karnoweb\Accounting\Reporting\ComparativeReportResult;
+use Karnoweb\Accounting\Reporting\DailyJournalReport;
+use Karnoweb\Accounting\Reporting\DailyJournalResult;
 use Karnoweb\Accounting\Reporting\FinancialStatements;
 use Karnoweb\Accounting\Reporting\GeneralLedgerReport;
 use Karnoweb\Accounting\Reporting\GeneralLedgerSummaryRow;
 use Karnoweb\Accounting\Reporting\HierarchyRollup;
+use Karnoweb\Accounting\Reporting\JournalBookReport;
+use Karnoweb\Accounting\Reporting\JournalBookResult;
 use Karnoweb\Accounting\Reporting\LedgerQuery;
+use Karnoweb\Accounting\Reporting\LedgerReportFilters;
 use Karnoweb\Accounting\Reporting\PaginatedAccountStatement;
 use Karnoweb\Accounting\Reporting\PaginatedCostCenterStatement;
 use Karnoweb\Accounting\Reporting\PaginatedGeneralLedgerSummary;
+use Karnoweb\Accounting\Reporting\PeriodClosingReport;
+use Karnoweb\Accounting\Reporting\PeriodClosingResult;
 use Karnoweb\Accounting\Reporting\ProfitAndLossReport;
+use Karnoweb\Accounting\Reporting\ReportPagination;
 use Karnoweb\Accounting\Reporting\StatementLine;
 use Karnoweb\Accounting\Reporting\TrialBalanceReport;
 use Karnoweb\Accounting\Enums\AccountNature;
@@ -412,6 +429,138 @@ class ReportService
             to: $query->resolvedTo(),
             accounts: $this->makePaginator($rows, $total, $perPage, $page),
         );
+    }
+
+    /**
+     * Account movement summary: opening, period debit/credit, closing, counts.
+     *
+     * @param  array<string, mixed>|LedgerReportFilters  $filters
+     * @param  array<string, mixed>|ReportPagination|null  $pagination
+     */
+    public function accountTurnover(array|LedgerReportFilters $filters, array|ReportPagination|null $pagination = null): AccountTurnoverResult
+    {
+        return (new AccountTurnoverReport(
+            $this->normalizeAdvancedFilters($filters),
+            $this->normalizePagination($filters, $pagination),
+        ))->build();
+    }
+
+    /**
+     * Chronological journal register. Documents are not split across pages.
+     *
+     * @param  array<string, mixed>|LedgerReportFilters  $filters
+     * @param  array<string, mixed>|ReportPagination|null  $pagination
+     */
+    public function journalBook(array|LedgerReportFilters $filters, array|ReportPagination|null $pagination = null): JournalBookResult
+    {
+        return (new JournalBookReport(
+            $this->normalizeAdvancedFilters($filters),
+            $this->normalizePagination($filters, $pagination),
+        ))->build();
+    }
+
+    /**
+     * Daily activity summary. One row per date (or date + group).
+     *
+     * @param  array<string, mixed>|LedgerReportFilters  $filters
+     * @param  array<string, mixed>|ReportPagination|null  $pagination
+     */
+    public function dailyJournal(array|LedgerReportFilters $filters, array|ReportPagination|null $pagination = null): DailyJournalResult
+    {
+        return (new DailyJournalReport(
+            $this->normalizeAdvancedFilters($filters),
+            $this->normalizePagination($filters, $pagination),
+        ))->build();
+    }
+
+    /**
+     * Read-only closing readiness. Does not close a period.
+     *
+     * @param  array<string, mixed>|LedgerReportFilters  $filters
+     * @param  array<string, mixed>|ReportPagination|null  $pagination
+     */
+    public function periodClosing(array|LedgerReportFilters $filters, array|ReportPagination|null $pagination = null): PeriodClosingResult
+    {
+        return (new PeriodClosingReport(
+            $this->normalizeAdvancedFilters($filters),
+            $this->normalizePagination($filters, $pagination),
+        ))->build();
+    }
+
+    /**
+     * Compare two Account Turnover scopes after aligning accounts.
+     *
+     * @param  array<string, mixed>|LedgerReportFilters  $current
+     * @param  array<string, mixed>|LedgerReportFilters  $comparison
+     * @param  array<string, mixed>|ReportPagination|null  $pagination
+     */
+    public function comparePeriods(
+        array|LedgerReportFilters $current,
+        array|LedgerReportFilters $comparison,
+        array|ReportPagination|null $pagination = null,
+    ): ComparativeReportResult {
+        return (new ComparativePeriodReport(
+            $this->normalizeAdvancedFilters($current),
+            $this->normalizeAdvancedFilters($comparison),
+            $this->normalizePagination($current, $pagination),
+        ))->build();
+    }
+
+    /**
+     * @param  array<string, mixed>|AgingFilters  $filters
+     */
+    public function receivableAging(array|AgingFilters $filters): AgingReportResult
+    {
+        return $this->aging($filters, 'receivable');
+    }
+
+    /**
+     * @param  array<string, mixed>|AgingFilters  $filters
+     */
+    public function payableAging(array|AgingFilters $filters): AgingReportResult
+    {
+        return $this->aging($filters, 'payable');
+    }
+
+    /**
+     * @param  array<string, mixed>|AgingFilters  $filters
+     */
+    private function aging(array|AgingFilters $filters, string $side): AgingReportResult
+    {
+        $filters = $filters instanceof AgingFilters ? $filters : AgingFilters::from($filters, $side);
+
+        if (! app()->bound(AgingSourceProvider::class)) {
+            throw new AgingUnavailableException($side);
+        }
+
+        return (new AgingReport(app(AgingSourceProvider::class), $filters))->build();
+    }
+
+    /**
+     * @param  array<string, mixed>|LedgerReportFilters  $filters
+     */
+    private function normalizeAdvancedFilters(array|LedgerReportFilters $filters): LedgerReportFilters
+    {
+        return $filters instanceof LedgerReportFilters ? $filters : LedgerReportFilters::from($filters);
+    }
+
+    /**
+     * @param  array<string, mixed>|LedgerReportFilters  $filters
+     * @param  array<string, mixed>|ReportPagination|null  $pagination
+     */
+    private function normalizePagination(
+        array|LedgerReportFilters $filters,
+        array|ReportPagination|null $pagination,
+    ): ReportPagination {
+        if ($pagination instanceof ReportPagination) {
+            return $pagination;
+        }
+
+        if (is_array($pagination)) {
+            return ReportPagination::fromInput($pagination);
+        }
+
+        return ReportPagination::fromInput(is_array($filters) ? $filters : []);
     }
 
     /** @return Collection<int, AccountLedger> keyed by account_id */

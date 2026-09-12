@@ -128,6 +128,9 @@ return [
 
     'reports' => [
         'per_page' => 50,
+        'per_page_min' => 1,
+        'per_page_max' => 200,
+        'pagination_default' => 'cursor',
         // System-account keys treated as cash/bank for cashMovements().
         // Codes come from account.system_accounts. Not inferred from titles.
         'cash_system_keys' => ['cash', 'bank', 'gateway_clearing'],

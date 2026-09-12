@@ -43,14 +43,15 @@
 3. [04-database-schema.md](04-database-schema.md) — جداول، روابط و محدودیت‌ها
 4. [09-reports.md](09-reports.md) — منبع داده و منطق گزارش‌ها
 5. [20-financial-statements.md](20-financial-statements.md) — سود و زیان، ترازنامه، شالوده گردش نقد
-6. [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md) — چرخه کامل سال مالی
-7. [17-multi-active-years-and-opening.md](17-multi-active-years-and-opening.md) — چندسال هم‌زمان، افتتاحیه دیرهنگام و carry موقت (فارسی روان)
-8. [18-monetary-arithmetic.md](18-monetary-arithmetic.md) — نمایش اعشاری مبلغ‌ها، مقایسه، و قانون مشارکت‌کنندگان
-9. [10-multi-branch.md](10-multi-branch.md) — ایزوله بودن شعبه
-10. [12-security.md](12-security.md) — تمامیت دفتر در برابر authorization میزبان
-11. [19-accounting-invariants.md](19-accounting-invariants.md) — کاتالوگ invariantها و مسیر کانونیکال ثبت
-12. [15-appendix.md](15-appendix.md) — واژه‌نامه، تفاوت مفاهیم مشابه و FAQ
-13. [16-documentation-gaps.md](16-documentation-gaps.md) — کلیدهای unused و کارهای باقی‌مانده
+6. [21-advanced-reports.md](21-advanced-reports.md) — گردش حساب، دفتر روزنامه، خلاصه روزانه، آمادگی بستن، مقایسه دوره، قرارداد aging
+7. [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md) — چرخه کامل سال مالی
+8. [17-multi-active-years-and-opening.md](17-multi-active-years-and-opening.md) — چندسال هم‌زمان، افتتاحیه دیرهنگام و carry موقت (فارسی روان)
+9. [18-monetary-arithmetic.md](18-monetary-arithmetic.md) — نمایش اعشاری مبلغ‌ها، مقایسه، و قانون مشارکت‌کنندگان
+10. [10-multi-branch.md](10-multi-branch.md) — ایزوله بودن شعبه
+11. [12-security.md](12-security.md) — تمامیت دفتر در برابر authorization میزبان
+12. [19-accounting-invariants.md](19-accounting-invariants.md) — کاتالوگ invariantها و مسیر کانونیکال ثبت
+13. [15-appendix.md](15-appendix.md) — واژه‌نامه، تفاوت مفاهیم مشابه و FAQ
+14. [16-documentation-gaps.md](16-documentation-gaps.md) — کلیدهای unused و کارهای باقی‌مانده
 
 ## نقشه واقعی ماژول‌ها
 
@@ -88,12 +89,14 @@
 
 ### گزارش‌ها و DTOها
 
-- `LedgerQuery`
+- `LedgerQuery` / `LedgerReportFilters` / `BranchScope` / `ReportPagination`
 - `HierarchyRollup`
 - `TrialBalanceReport` / `TrialBalanceRow`
 - `ProfitAndLossReport` / `BalanceSheetReport` / `CashMovementReport` / `StatementLine` / `FinancialStatements`
 - `GeneralLedgerReport` / `AccountLedger` / `LedgerLine`
 - `PaginatedAccountStatement` / `PaginatedCostCenterStatement` / `PaginatedGeneralLedgerSummary` / `GeneralLedgerSummaryRow`
+- `AccountTurnoverResult` / `JournalBookResult` / `DailyJournalResult` / `PeriodClosingResult` / `ComparativeReportResult`
+- `AgingSourceProvider` (اختیاری؛ aging بومی نیست)
 
 ## نکات مهم برای خواندن این مستندات
 
@@ -109,7 +112,7 @@
 - جدول یا ماژول مستقل برای صندوق
 - جدول یا ماژول مستقل برای بانک
 - ماژول انتقال وجه بانکی
-- زیرسیستم اشخاص، مشتریان، تأمین‌کنندگان
+- زیرسیستم اشخاص، مشتریان، تأمین‌کنندگان و در نتیجه AR/AP Aging بومی
 - ماژول کالا، خدمت، انبار یا مالیات
 - بازگشایی سال مالی / دوره مالی بسته
 - اصلاح بین‌دوره‌ای سال بسته
@@ -134,4 +137,5 @@
 5. [usage.md](usage.md)
 6. [09-reports.md](09-reports.md)
 7. [20-financial-statements.md](20-financial-statements.md)
-8. [16-documentation-gaps.md](16-documentation-gaps.md)
+8. [21-advanced-reports.md](21-advanced-reports.md)
+9. [16-documentation-gaps.md](16-documentation-gaps.md)

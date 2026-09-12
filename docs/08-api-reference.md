@@ -128,10 +128,18 @@ $account = Accounting::account()->create([
 | `accountStatementPaginated(LedgerQuery $query, int $page = 1, ?int $perPage = null)` | `PaginatedAccountStatement` |
 | `costCenterStatementPaginated(LedgerQuery $query, int $page = 1, ?int $perPage = null)` | `PaginatedCostCenterStatement` |
 | `generalLedgerSummary(LedgerQuery $query, int $page = 1, ?int $perPage = null)` | `PaginatedGeneralLedgerSummary` |
+| `accountTurnover($filters, $pagination = null)` | `AccountTurnoverResult` |
+| `journalBook($filters, $pagination = null)` | `JournalBookResult` |
+| `dailyJournal($filters, $pagination = null)` | `DailyJournalResult` |
+| `periodClosing($filters, $pagination = null)` | `PeriodClosingResult` |
+| `comparePeriods($current, $comparison, $pagination = null)` | `ComparativeReportResult` |
+| `receivableAging($filters)` / `payableAging($filters)` | فقط با bind `AgingSourceProvider`؛ وگرنه `AgingUnavailableException` |
 
-`incomeStatement()`, `costCenterReport()`, `branchReport()` **وجود ندارند**. سود و زیان همان `profitAndLoss()` است. فیلتر شعبه/مرکز هزینه/بازه از `LedgerQuery` می‌آید، نه از آرگومان نام‌دار روی `trialBalance()`.
+`$filters` برای گزارش‌های جدید `array` یا `LedgerReportFilters` است.
 
-مرجع دفتر: [09-reports.md](09-reports.md). صورت‌های مالی: [20-financial-statements.md](20-financial-statements.md).
+`incomeStatement()`, `costCenterReport()`, `branchReport()` **وجود ندارند**. سود و زیان همان `profitAndLoss()` است. فیلتر شعبه/مرکز هزینه/بازه تراز آزمایشی از `LedgerQuery` می‌آید.
+
+مرجع دفتر: [09-reports.md](09-reports.md). صورت‌های مالی: [20-financial-statements.md](20-financial-statements.md). گزارش‌های پیشرفته: [21-advanced-reports.md](21-advanced-reports.md).
 
 ## `LedgerQuery`
 
@@ -142,12 +150,16 @@ $account = Accounting::account()->create([
 | `forAccountingPeriod(AccountingPeriod $period)` | FY + `[start, end]` دوره |
 | `from()` / `to()` | بازه تاریخ |
 | `branch()` | فیلتر `documents.branch_id`؛ `null` یعنی بدون شعبه |
-| `costCenter()` | فیلتر `document_items.cost_center_id` |
-| `excludeDocumentTypes()` | حذف نوع سند از دوره و افتتاحیه |
+| `branches()` / `allBranches()` | چند شعبه یا صریح همه شعبه‌های scope |
+| `costCenter()` / `costCenters()` | فیلتر `document_items.cost_center_id` |
+| `excludeDocumentTypes()` / `includeDocumentTypes()` | حذف یا محدود کردن نوع سند |
+| `search()` / `documentNumberFrom()` / `documentNumberTo()` / `accountType()` / `mode()` | فیلترهای گزارش پیشرفته |
+| `listingQuery()` | listing؛ در `mode=audit` status را باز می‌کند. جمع مالی از `baseQuery()` است |
 | `get()` / `cursor()` / `pageLines()` / `countLines()` / `prefixSignedSum()` | خواندن خطوط |
 | `openingBalances()` / `periodTotals()` / `periodTotalsByAccount()` / `trialBalanceAggregates()` | تجمیع |
+| `periodActivityByAccount()` / `openingDebitCreditByAccount()` / `periodTotalsByBranch()` / `periodTotalsExact()` | تجمیع گزارش‌های پیشرفته |
 
-همیشه posted-only است.
+`baseQuery()` / افتتاحیه همیشه posted-only است.
 
 ## `FiscalYearService`
 

@@ -61,8 +61,33 @@ final class LedgerQuery
 
     private bool $costCenterFilterApplied = false;
 
+    /** @var list<int> */
+    private array $branchIds = [];
+
+    private bool $allBranches = false;
+
+    /** @var list<int> */
+    private array $costCenterIds = [];
+
     /** @var list<string> */
     private array $excludedDocumentTypes = [];
+
+    /** @var list<string> */
+    private array $includedDocumentTypes = [];
+
+    private ?int $documentNumberFrom = null;
+
+    private ?int $documentNumberTo = null;
+
+    private ?string $search = null;
+
+    private ?string $minAmount = null;
+
+    private ?string $maxAmount = null;
+
+    private ?string $accountType = null;
+
+    private ReportMode $mode = ReportMode::Financial;
 
     public static function make(): self
     {
@@ -139,6 +164,42 @@ final class LedgerQuery
     {
         $this->branchId = $branch instanceof Model ? (int) $branch->getKey() : $branch;
         $this->branchFilterApplied = true;
+        $this->branchIds = [];
+        $this->allBranches = false;
+
+        return $this;
+    }
+
+    /**
+     * Restrict to an explicit set of branch ids. Empty list is rejected by BranchScope;
+     * this method applies WHERE IN when called directly.
+     *
+     * @param  iterable<Model|int>  $branches
+     */
+    public function branches(iterable $branches): self
+    {
+        $this->branchIds = collect($branches)
+            ->map(fn ($branch) => $branch instanceof Model ? (int) $branch->getKey() : (int) $branch)
+            ->unique()
+            ->values()
+            ->all();
+        $this->branchFilterApplied = true;
+        $this->allBranches = false;
+        $this->branchId = count($this->branchIds) === 1 ? $this->branchIds[0] : null;
+
+        return $this;
+    }
+
+    /**
+     * Explicit all-branches mode: no branch predicate is applied.
+     * Host/tenant scope remains the caller's responsibility.
+     */
+    public function allBranches(): self
+    {
+        $this->allBranches = true;
+        $this->branchFilterApplied = false;
+        $this->branchId = null;
+        $this->branchIds = [];
 
         return $this;
     }
@@ -148,6 +209,83 @@ final class LedgerQuery
     {
         $this->costCenterId = $center instanceof CostCenter ? $center->id : ($center !== null ? (int) $center : null);
         $this->costCenterFilterApplied = true;
+        $this->costCenterIds = [];
+
+        return $this;
+    }
+
+    /**
+     * @param  iterable<CostCenter|int>  $centers
+     */
+    public function costCenters(iterable $centers): self
+    {
+        $this->costCenterIds = collect($centers)
+            ->map(fn ($center) => $center instanceof CostCenter ? $center->id : (int) $center)
+            ->unique()
+            ->values()
+            ->all();
+        $this->costCenterFilterApplied = true;
+        $this->costCenterId = count($this->costCenterIds) === 1 ? $this->costCenterIds[0] : null;
+
+        return $this;
+    }
+
+    public function includeDocumentTypes(string ...$types): self
+    {
+        $this->includedDocumentTypes = array_values(array_unique(array_filter($types, fn (string $type) => $type !== '')));
+
+        return $this;
+    }
+
+    public function documentNumberFrom(?int $number): self
+    {
+        $this->documentNumberFrom = $number;
+
+        return $this;
+    }
+
+    public function documentNumberTo(?int $number): self
+    {
+        $this->documentNumberTo = $number;
+
+        return $this;
+    }
+
+    /**
+     * Restrict listing/search to: document number (exact when numeric),
+     * description, reference, account code, account title.
+     */
+    public function search(?string $term): self
+    {
+        $this->search = $term !== null && trim($term) !== '' ? trim($term) : null;
+
+        return $this;
+    }
+
+    public function minAmount(int|float|string|null $amount): self
+    {
+        $this->minAmount = $amount !== null && $amount !== '' ? Amount::of($amount)->toStorage() : null;
+
+        return $this;
+    }
+
+    public function maxAmount(int|float|string|null $amount): self
+    {
+        $this->maxAmount = $amount !== null && $amount !== '' ? Amount::of($amount)->toStorage() : null;
+
+        return $this;
+    }
+
+    public function accountType(?string $type): self
+    {
+        $this->accountType = $type !== null && $type !== '' ? $type : null;
+
+        return $this;
+    }
+
+    public function mode(ReportMode $mode): self
+    {
+        $this->mode = $mode;
 
         return $this;
     }
@@ -210,6 +348,80 @@ final class LedgerQuery
         return $this->costCenterFilterApplied;
     }
 
+    /** @return list<int> */
+    public function branchIds(): array
+    {
+        if ($this->branchIds !== []) {
+            return $this->branchIds;
+        }
+
+        if ($this->branchFilterApplied && $this->branchId !== null) {
+            return [$this->branchId];
+        }
+
+        return [];
+    }
+
+    public function isAllBranches(): bool
+    {
+        return $this->allBranches;
+    }
+
+    /** @return list<int> */
+    public function costCenterIds(): array
+    {
+        if ($this->costCenterIds !== []) {
+            return $this->costCenterIds;
+        }
+
+        if ($this->costCenterFilterApplied && $this->costCenterId !== null) {
+            return [$this->costCenterId];
+        }
+
+        return [];
+    }
+
+    /** @return list<string> */
+    public function includedDocumentTypes(): array
+    {
+        return $this->includedDocumentTypes;
+    }
+
+    public function documentNumberFromValue(): ?int
+    {
+        return $this->documentNumberFrom;
+    }
+
+    public function documentNumberToValue(): ?int
+    {
+        return $this->documentNumberTo;
+    }
+
+    public function searchTerm(): ?string
+    {
+        return $this->search;
+    }
+
+    public function minAmountValue(): ?string
+    {
+        return $this->minAmount;
+    }
+
+    public function maxAmountValue(): ?string
+    {
+        return $this->maxAmount;
+    }
+
+    public function accountTypeValue(): ?string
+    {
+        return $this->accountType;
+    }
+
+    public function reportMode(): ReportMode
+    {
+        return $this->mode;
+    }
+
     public function fiscalYearId(): ?int
     {
         return $this->fiscalYearId;
@@ -262,30 +474,27 @@ final class LedgerQuery
         $documents = (new Document)->getTable();
 
         $query = DB::table($items)
-            ->join($documents, "{$documents}.id", '=', "{$items}.document_id")
-            ->where("{$documents}.status", DocumentStatus::POSTED->value);
+            ->join($documents, "{$documents}.id", '=', "{$items}.document_id");
 
-        $this->applyAccountFilter($query, $items);
-        $this->applyBranchFilter($query, $documents);
-        $this->applyCostCenterFilter($query, $items);
-        $this->applyDocumentTypeExclusion($query, $documents);
+        $this->applySharedFilters($query, $items, $documents, financial: true);
 
-        $from = $this->resolvedFrom();
-        $to = $this->resolvedTo();
+        return $query;
+    }
 
-        // documents.date is a Carbon 'date' cast, which Eloquent still persists with a
-        // "00:00:00" time suffix — compare by DATE() rather than raw string/lexical order.
-        if ($from !== null) {
-            $query->whereDate("{$documents}.date", '>=', $from);
-        }
+    /**
+     * Document/line listing query. Financial mode stays posted-only.
+     * Audit mode includes draft/pending/approved/voided rows for inspection
+     * and must not be used for official financial totals.
+     */
+    public function listingQuery(): QueryBuilder
+    {
+        $items = (new DocumentItem)->getTable();
+        $documents = (new Document)->getTable();
 
-        if ($to !== null) {
-            $query->whereDate("{$documents}.date", '<=', $to);
-        }
+        $query = DB::table($items)
+            ->join($documents, "{$documents}.id", '=', "{$items}.document_id");
 
-        if ($this->fiscalYearId !== null) {
-            $query->where("{$documents}.fiscal_year_id", $this->fiscalYearId);
-        }
+        $this->applySharedFilters($query, $items, $documents, financial: $this->mode === ReportMode::Financial);
 
         return $query;
     }
@@ -303,20 +512,54 @@ final class LedgerQuery
         $documents = (new Document)->getTable();
 
         $query = DB::table($items)
-            ->join($documents, "{$documents}.id", '=', "{$items}.document_id")
-            ->where("{$documents}.status", DocumentStatus::POSTED->value)
-            ->whereDate("{$documents}.date", '<', $this->resolvedFrom() ?? '0001-01-01');
+            ->join($documents, "{$documents}.id", '=', "{$items}.document_id");
+
+        $this->applySharedFilters($query, $items, $documents, financial: true, applyDates: false, applyListing: false);
+        $query->whereDate("{$documents}.date", '<', $this->resolvedFrom() ?? '0001-01-01');
+
+        return $query;
+    }
+
+    private function applySharedFilters(
+        QueryBuilder $query,
+        string $items,
+        string $documents,
+        bool $financial,
+        bool $applyDates = true,
+        bool $applyListing = true
+    ): void {
+        if ($financial) {
+            $query->where("{$documents}.status", DocumentStatus::POSTED->value);
+        }
 
         $this->applyAccountFilter($query, $items);
+        $this->applyAccountTypeFilter($query, $items);
         $this->applyBranchFilter($query, $documents);
         $this->applyCostCenterFilter($query, $items);
         $this->applyDocumentTypeExclusion($query, $documents);
+        $this->applyDocumentTypeInclusion($query, $documents);
+
+        if ($applyListing) {
+            $this->applyDocumentNumberFilter($query, $documents);
+            $this->applySearchFilter($query, $items, $documents);
+        }
+
+        if ($applyDates) {
+            $from = $this->resolvedFrom();
+            $to = $this->resolvedTo();
+
+            if ($from !== null) {
+                $query->whereDate("{$documents}.date", '>=', $from);
+            }
+
+            if ($to !== null) {
+                $query->whereDate("{$documents}.date", '<=', $to);
+            }
+        }
 
         if ($this->fiscalYearId !== null) {
             $query->where("{$documents}.fiscal_year_id", $this->fiscalYearId);
         }
-
-        return $query;
     }
 
     private function applyAccountFilter(QueryBuilder $query, string $items): void
@@ -326,9 +569,26 @@ final class LedgerQuery
         }
     }
 
+    private function applyAccountTypeFilter(QueryBuilder $query, string $items): void
+    {
+        if ($this->accountType === null) {
+            return;
+        }
+
+        $accounts = (new Account)->getTable();
+        $this->ensureAccountJoin($query, $items, $accounts);
+        $query->where("{$accounts}.type", $this->accountType);
+    }
+
     private function applyBranchFilter(QueryBuilder $query, string $documents): void
     {
-        if (! $this->branchFilterApplied) {
+        if ($this->allBranches || ! $this->branchFilterApplied) {
+            return;
+        }
+
+        if ($this->branchIds !== []) {
+            $query->whereIn("{$documents}.branch_id", $this->branchIds);
+
             return;
         }
 
@@ -348,9 +608,57 @@ final class LedgerQuery
         $query->whereNotIn("{$documents}.type", $this->excludedDocumentTypes);
     }
 
+    private function applyDocumentTypeInclusion(QueryBuilder $query, string $documents): void
+    {
+        if ($this->includedDocumentTypes === []) {
+            return;
+        }
+
+        $query->whereIn("{$documents}.type", $this->includedDocumentTypes);
+    }
+
+    private function applyDocumentNumberFilter(QueryBuilder $query, string $documents): void
+    {
+        if ($this->documentNumberFrom !== null) {
+            $query->where("{$documents}.number", '>=', $this->documentNumberFrom);
+        }
+
+        if ($this->documentNumberTo !== null) {
+            $query->where("{$documents}.number", '<=', $this->documentNumberTo);
+        }
+    }
+
+    private function applySearchFilter(QueryBuilder $query, string $items, string $documents): void
+    {
+        if ($this->search === null) {
+            return;
+        }
+
+        $accounts = (new Account)->getTable();
+        $this->ensureAccountJoin($query, $items, $accounts);
+        $like = '%'.$this->escapeLike($this->search).'%';
+
+        $query->where(function (QueryBuilder $nested) use ($documents, $accounts, $like) {
+            $nested->where("{$documents}.description", 'like', $like)
+                ->orWhere("{$documents}.reference", 'like', $like)
+                ->orWhere("{$accounts}.code", 'like', $like)
+                ->orWhere("{$accounts}.title", 'like', $like);
+
+            if (preg_match('/^\d+$/', $this->search) === 1) {
+                $nested->orWhere("{$documents}.number", (int) $this->search);
+            }
+        });
+    }
+
     private function applyCostCenterFilter(QueryBuilder $query, string $items): void
     {
         if (! $this->costCenterFilterApplied) {
+            return;
+        }
+
+        if ($this->costCenterIds !== []) {
+            $query->whereIn("{$items}.cost_center_id", $this->costCenterIds);
+
             return;
         }
 
@@ -359,6 +667,23 @@ final class LedgerQuery
         } else {
             $query->where("{$items}.cost_center_id", $this->costCenterId);
         }
+    }
+
+    private function ensureAccountJoin(QueryBuilder $query, string $items, string $accounts): void
+    {
+        $joins = $query->joins ?? [];
+        foreach ($joins as $join) {
+            if (isset($join->table) && $join->table === $accounts) {
+                return;
+            }
+        }
+
+        $query->leftJoin($accounts, "{$accounts}.id", '=', "{$items}.account_id");
+    }
+
+    private function escapeLike(string $value): string
+    {
+        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $value);
     }
 
     /**
@@ -477,6 +802,142 @@ final class LedgerQuery
         }
 
         return $result;
+    }
+
+    /**
+     * Period activity plus transaction/document counts per account (SQL aggregation).
+     *
+     * @return array<int, array{debit: string, credit: string, transaction_count: int, document_count: int}>
+     */
+    public function periodActivityByAccount(): array
+    {
+        $items = (new DocumentItem)->getTable();
+        $documents = (new Document)->getTable();
+
+        $rows = $this->baseQuery()
+            ->selectRaw("{$items}.account_id as account_id, COALESCE(SUM({$items}.debit), 0) as debit, COALESCE(SUM({$items}.credit), 0) as credit, COUNT({$items}.id) as transaction_count, COUNT(DISTINCT {$documents}.id) as document_count")
+            ->groupBy("{$items}.account_id")
+            ->get();
+
+        $result = [];
+        foreach ($rows as $row) {
+            $result[(int) $row->account_id] = [
+                'debit' => Amount::of($row->debit)->toStorage(),
+                'credit' => Amount::of($row->credit)->toStorage(),
+                'transaction_count' => (int) $row->transaction_count,
+                'document_count' => (int) $row->document_count,
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Opening debit/credit per account as decimal strings.
+     *
+     * @return array<int, array{opening_debit: string, opening_credit: string}>
+     */
+    public function openingDebitCreditByAccount(): array
+    {
+        $result = [];
+
+        if ($this->resolvedFrom() === null) {
+            return $result;
+        }
+
+        $items = (new DocumentItem)->getTable();
+        $rows = $this->openingQuery()
+            ->selectRaw("{$items}.account_id as account_id, COALESCE(SUM({$items}.debit), 0) as opening_debit, COALESCE(SUM({$items}.credit), 0) as opening_credit")
+            ->groupBy("{$items}.account_id")
+            ->get();
+
+        foreach ($rows as $row) {
+            $result[(int) $row->account_id] = [
+                'opening_debit' => Amount::of($row->opening_debit)->toStorage(),
+                'opening_credit' => Amount::of($row->opening_credit)->toStorage(),
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Period debit/credit per branch (documents.branch_id). Used for breakdown, not row duplication.
+     *
+     * @return array<int|string, array{branch_id: ?int, debit: string, credit: string}>
+     */
+    public function periodTotalsByBranch(): array
+    {
+        $items = (new DocumentItem)->getTable();
+        $documents = (new Document)->getTable();
+
+        $rows = $this->baseQuery()
+            ->selectRaw("{$documents}.branch_id as branch_id, COALESCE(SUM({$items}.debit), 0) as debit, COALESCE(SUM({$items}.credit), 0) as credit")
+            ->groupBy("{$documents}.branch_id")
+            ->orderBy("{$documents}.branch_id")
+            ->get();
+
+        $result = [];
+        foreach ($rows as $row) {
+            $branchId = $row->branch_id === null ? null : (int) $row->branch_id;
+            $key = $branchId ?? 'none';
+            $result[$key] = [
+                'branch_id' => $branchId,
+                'debit' => Amount::of($row->debit)->toStorage(),
+                'credit' => Amount::of($row->credit)->toStorage(),
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Period debit/credit per account and branch.
+     *
+     * @return array<int, array<int|string, array{debit: string, credit: string}>>
+     */
+    public function periodTotalsByAccountAndBranch(): array
+    {
+        $items = (new DocumentItem)->getTable();
+        $documents = (new Document)->getTable();
+
+        $rows = $this->baseQuery()
+            ->selectRaw("{$items}.account_id as account_id, {$documents}.branch_id as branch_id, COALESCE(SUM({$items}.debit), 0) as debit, COALESCE(SUM({$items}.credit), 0) as credit")
+            ->groupBy("{$items}.account_id", "{$documents}.branch_id")
+            ->get();
+
+        $result = [];
+        foreach ($rows as $row) {
+            $branchKey = $row->branch_id === null ? 'none' : (int) $row->branch_id;
+            $result[(int) $row->account_id][$branchKey] = [
+                'debit' => Amount::of($row->debit)->toStorage(),
+                'credit' => Amount::of($row->credit)->toStorage(),
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Period totals as decimal strings (financial / posted only).
+     *
+     * @return array{debit: string, credit: string, line_count: int, document_count: int}
+     */
+    public function periodTotalsExact(): array
+    {
+        $items = (new DocumentItem)->getTable();
+        $documents = (new Document)->getTable();
+
+        $row = $this->baseQuery()
+            ->selectRaw("COALESCE(SUM({$items}.debit), 0) as debit, COALESCE(SUM({$items}.credit), 0) as credit, COUNT({$items}.id) as line_count, COUNT(DISTINCT {$documents}.id) as document_count")
+            ->first();
+
+        return [
+            'debit' => Amount::of($row->debit ?? 0)->toStorage(),
+            'credit' => Amount::of($row->credit ?? 0)->toStorage(),
+            'line_count' => (int) ($row->line_count ?? 0),
+            'document_count' => (int) ($row->document_count ?? 0),
+        ];
     }
 
     /**
