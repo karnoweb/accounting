@@ -6,10 +6,15 @@ namespace Karnoweb\Accounting\Services;
 
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Karnoweb\Accounting\Models\Account;
 use Karnoweb\Accounting\Models\FiscalYear;
 use Karnoweb\Accounting\Reporting\AccountLedger;
+use Karnoweb\Accounting\Reporting\BalanceSheetReport;
+use Karnoweb\Accounting\Reporting\CashAccountResolver;
+use Karnoweb\Accounting\Reporting\CashMovementReport;
+use Karnoweb\Accounting\Reporting\FinancialStatements;
 use Karnoweb\Accounting\Reporting\GeneralLedgerReport;
 use Karnoweb\Accounting\Reporting\GeneralLedgerSummaryRow;
 use Karnoweb\Accounting\Reporting\HierarchyRollup;
@@ -17,11 +22,17 @@ use Karnoweb\Accounting\Reporting\LedgerQuery;
 use Karnoweb\Accounting\Reporting\PaginatedAccountStatement;
 use Karnoweb\Accounting\Reporting\PaginatedCostCenterStatement;
 use Karnoweb\Accounting\Reporting\PaginatedGeneralLedgerSummary;
+use Karnoweb\Accounting\Reporting\ProfitAndLossReport;
+use Karnoweb\Accounting\Reporting\StatementLine;
 use Karnoweb\Accounting\Reporting\TrialBalanceReport;
+use Karnoweb\Accounting\Enums\AccountNature;
+use Karnoweb\Accounting\Models\Document;
+use Karnoweb\Accounting\Models\DocumentItem;
 use Karnoweb\Accounting\Support\AccountHierarchy;
+use Karnoweb\Accounting\Support\Amount;
 
 /**
- * Service for accounting reports (trial balance, general ledger, account statement).
+ * Service for accounting reports (trial balance, statements, general ledger).
  *
  * Every report reads posted journal lines (acc_document_items JOIN acc_documents),
  * never Account::cached_balance — see Karnoweb\Accounting\Reporting\LedgerQuery.
@@ -56,12 +67,12 @@ class ReportService
 
         $rows = [];
         foreach ($accounts as $account) {
-            $balance = $this->balanceService->getBalance($account, $fiscalYear);
-            if (abs($balance) >= 0.01) {
+            $balance = Amount::of($this->balanceService->getBalance($account, $fiscalYear));
+            if ( ! $balance->isZero()) {
                 $rows[] = [
                     'account' => $account,
-                    'debit' => $balance > 0 ? $balance : 0,
-                    'credit' => $balance < 0 ? abs($balance) : 0,
+                    'debit' => $balance->isPositive() ? $balance->toFloat() : 0.0,
+                    'credit' => $balance->isNegative() ? $balance->abs()->toFloat() : 0.0,
                 ];
             }
         }
@@ -94,6 +105,146 @@ class ReportService
     }
 
     /**
+     * Period-flow income statement. Closing journals are excluded so a closed year
+     * still reports the year's profit. Contra-income (returns/discounts stored as
+     * income) reduces revenue through natural-balance presentation.
+     */
+    public function profitAndLoss(LedgerQuery|FiscalYear|null $criteria = null): ProfitAndLossReport
+    {
+        $query = clone $this->normalizeStatementCriteria($criteria);
+        $query->excludeDocumentTypes('closing');
+
+        return FinancialStatements::profitAndLoss($this->trialBalanceDetailed($query));
+    }
+
+    /**
+     * Stock statement as of `LedgerQuery::resolvedTo()`. Includes closing journals.
+     * Uncleared temporary balances appear as `currentEarnings` so the equation
+     * Assets = Liabilities + Equity + Current Earnings holds before year-end close.
+     */
+    public function balanceSheet(LedgerQuery|FiscalYear|null $criteria = null): BalanceSheetReport
+    {
+        return FinancialStatements::balanceSheet(
+            $this->trialBalanceDetailed($this->normalizeStatementCriteria($criteria))
+        );
+    }
+
+    /**
+     * Cash/bank movement foundation. Not an operating/investing/financing statement.
+     * Cash accounts are those mapped by `accounting.reports.cash_system_keys`.
+     */
+    public function cashMovements(LedgerQuery|FiscalYear|null $criteria = null): CashMovementReport
+    {
+        $query = $this->normalizeStatementCriteria($criteria);
+        $resolver = new CashAccountResolver($this->accountService);
+        $cashIds = $resolver->accountIds(
+            $query->branchId(),
+            $query->isBranchFilterApplied()
+        );
+
+        if ($cashIds === []) {
+            return new CashMovementReport(
+                accounts: collect(),
+                inflow: 0.0,
+                outflow: 0.0,
+                transfers: 0.0,
+                netChange: 0.0,
+                cashAccountIds: [],
+                from: $query->resolvedFrom(),
+                to: $query->resolvedTo(),
+            );
+        }
+
+        $scoped = (clone $query)->forAccounts($cashIds);
+        $period = $scoped->periodTotalsByAccount();
+        $accounts = Account::query()->whereIn('id', $cashIds)->orderBy('code')->get();
+
+        $lines = $accounts->map(function (Account $account) use ($period) {
+            $totals = $period[$account->id] ?? ['debit' => 0.0, 'credit' => 0.0];
+            $nature = $account->nature instanceof AccountNature
+                ? $account->nature
+                : AccountNature::from((string) $account->nature);
+
+            return new StatementLine(
+                accountId: $account->id,
+                parentId: $account->parent_id,
+                code: $account->code,
+                title: $account->title,
+                level: (int) $account->level,
+                type: $account->type->value,
+                nature: $nature->value,
+                amount: $nature->naturalAmount($totals['debit'], $totals['credit']),
+                debit: Amount::of($totals['debit'])->toFloat(),
+                credit: Amount::of($totals['credit'])->toFloat(),
+            );
+        })->values();
+
+        $inflow = Amount::sum($lines->map(fn (StatementLine $line) => $line->debit));
+        $outflow = Amount::sum($lines->map(fn (StatementLine $line) => $line->credit));
+        $transfers = $this->cashTransferTotal($scoped, $cashIds);
+
+        return new CashMovementReport(
+            accounts: $lines,
+            inflow: $inflow->toFloat(),
+            outflow: $outflow->toFloat(),
+            transfers: $transfers->toFloat(),
+            netChange: $inflow->subtract($outflow)->toFloat(),
+            cashAccountIds: $cashIds,
+            from: $scoped->resolvedFrom(),
+            to: $scoped->resolvedTo(),
+        );
+    }
+
+    private function normalizeStatementCriteria(LedgerQuery|FiscalYear|null $criteria): LedgerQuery
+    {
+        return match (true) {
+            $criteria instanceof LedgerQuery => $criteria,
+            $criteria instanceof FiscalYear => LedgerQuery::make()->forFiscalYear($criteria),
+            default => LedgerQuery::make()->forFiscalYear(FiscalYear::current()),
+        };
+    }
+
+    /**
+     * Debit total of posted documents in scope whose every line is a cash account.
+     *
+     * @param  list<int>  $cashIds
+     */
+    private function cashTransferTotal(LedgerQuery $query, array $cashIds): Amount
+    {
+        $items = (new DocumentItem)->getTable();
+        $documents = (new Document)->getTable();
+
+        $documentIds = $query->baseQuery()
+            ->select("{$documents}.id")
+            ->distinct()
+            ->pluck('id')
+            ->all();
+
+        if ($documentIds === []) {
+            return Amount::zero();
+        }
+
+        $mixedIds = DB::table($items)
+            ->whereIn('document_id', $documentIds)
+            ->whereNotIn('account_id', $cashIds)
+            ->distinct()
+            ->pluck('document_id')
+            ->all();
+
+        $transferIds = array_values(array_diff($documentIds, $mixedIds));
+        if ($transferIds === []) {
+            return Amount::zero();
+        }
+
+        $row = DB::table($items)
+            ->whereIn('document_id', $transferIds)
+            ->selectRaw('COALESCE(SUM(debit), 0) as transfers')
+            ->first();
+
+        return Amount::of($row->transfers ?? 0);
+    }
+
+    /**
      * General Ledger: opening -> journal lines -> running balance -> closing, for
      * every account matched by $query (or every posting-level account when the
      * query has no account filter).
@@ -122,7 +273,7 @@ class ReportService
         $accountId = $this->requireSingleAccountId($query);
 
         return $this->buildAccountLedgers($query)->get($accountId)
-            ?? new AccountLedger($accountId, 0.0, collect(), 0.0);
+            ?? new AccountLedger($accountId, Amount::zero()->toFloat(), collect(), Amount::zero()->toFloat());
     }
 
     /**
@@ -145,23 +296,23 @@ class ReportService
         $total = $query->countLines();
         [$page, $perPage, $offset] = $this->resolvePagination($page, $perPage, $total);
 
-        $opening = $query->openingBalances()[$accountId] ?? 0.0;
+        $opening = Amount::of($query->openingBalances()[$accountId] ?? 0);
         $periodTotals = $query->periodTotals();
-        $closing = $opening + $periodTotals['balance'];
+        $closing = $opening->add($periodTotals['balance']);
 
-        $prefix = $query->prefixSignedSum($offset);
+        $prefix = Amount::of($query->prefixSignedSum($offset));
         $lines = $query->pageLines($offset, $perPage);
 
-        $running = $opening + $prefix;
+        $running = $opening->add($prefix);
         foreach ($lines as $line) {
-            $running += $line->signedAmount();
-            $line->runningBalance = $running;
+            $running = $running->add(Amount::signedBalance($line->debit, $line->credit));
+            $line->runningBalance = $running->toFloat();
         }
 
         return new PaginatedAccountStatement(
             accountId: $accountId,
-            openingBalance: $opening,
-            closingBalance: $closing,
+            openingBalance: $opening->toFloat(),
+            closingBalance: $closing->toFloat(),
             periodTotals: $periodTotals,
             from: $query->resolvedFrom(),
             to: $query->resolvedTo(),
@@ -240,17 +391,19 @@ class ReportService
 
         $rows = collect($pageIds)->map(function (int $accountId) use ($accounts, $openings, $periodByAccount) {
             $account = $accounts->get($accountId);
-            $opening = $openings[$accountId] ?? 0.0;
+            $opening = Amount::of($openings[$accountId] ?? 0);
             $period = $periodByAccount[$accountId] ?? ['debit' => 0.0, 'credit' => 0.0];
+            $periodDebit = Amount::of($period['debit']);
+            $periodCredit = Amount::of($period['credit']);
 
             return new GeneralLedgerSummaryRow(
                 accountId: $accountId,
                 code: (string) ($account->code ?? ''),
                 title: (string) ($account->title ?? ''),
-                openingBalance: $opening,
-                periodDebit: $period['debit'],
-                periodCredit: $period['credit'],
-                closingBalance: $opening + $period['debit'] - $period['credit'],
+                openingBalance: $opening->toFloat(),
+                periodDebit: $periodDebit->toFloat(),
+                periodCredit: $periodCredit->toFloat(),
+                closingBalance: $opening->add($periodDebit)->subtract($periodCredit)->toFloat(),
             );
         });
 
@@ -267,20 +420,26 @@ class ReportService
         $accountIds = $this->resolveAccountIds($query);
         $query = (clone $query)->forAccounts($accountIds);
 
-        $runningBalances = $openings = $query->openingBalances();
+        $openings = $query->openingBalances();
+        $runningBalances = [];
+        foreach ($openings as $accountId => $opening) {
+            $runningBalances[$accountId] = Amount::of($opening);
+        }
         $lines = collect($accountIds)->mapWithKeys(fn (int $id) => [$id => collect()]);
 
         foreach ($query->cursor() as $line) {
-            $line->runningBalance = ($runningBalances[$line->accountId] ?? 0.0) + $line->signedAmount();
-            $runningBalances[$line->accountId] = $line->runningBalance;
+            $current = $runningBalances[$line->accountId] ?? Amount::zero();
+            $current = $current->add(Amount::signedBalance($line->debit, $line->credit));
+            $line->runningBalance = $current->toFloat();
+            $runningBalances[$line->accountId] = $current;
             $lines[$line->accountId]->push($line);
         }
 
         return $lines->map(fn (Collection $accountLines, int $accountId) => new AccountLedger(
             accountId: $accountId,
-            openingBalance: $openings[$accountId] ?? 0.0,
+            openingBalance: Amount::of($openings[$accountId] ?? 0)->toFloat(),
             lines: $accountLines,
-            closingBalance: $runningBalances[$accountId] ?? ($openings[$accountId] ?? 0.0),
+            closingBalance: ($runningBalances[$accountId] ?? Amount::of($openings[$accountId] ?? 0))->toFloat(),
         ));
     }
 

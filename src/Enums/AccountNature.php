@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Karnoweb\Accounting\Enums;
 
 use InvalidArgumentException;
+use Karnoweb\Accounting\Support\Amount;
 
 enum AccountNature: string
 {
@@ -50,11 +51,13 @@ enum AccountNature: string
      * credit increases it. Never use abs($balance) as a substitute — e.g. a debit
      * sales return on an income account must reduce that income, not increase it.
      */
-    public function naturalAmount(float $debit, float $credit): float
+    public function naturalAmount(int|float|string $debit, int|float|string $credit): float
     {
+        $signed = Amount::signedBalance($debit, $credit);
+
         return match ($this) {
-            self::DEBIT => $debit - $credit,
-            self::CREDIT => $credit - $debit,
+            self::DEBIT => $signed->toFloat(),
+            self::CREDIT => $signed->negate()->toFloat(),
         };
     }
 

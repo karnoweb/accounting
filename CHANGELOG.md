@@ -1,5 +1,106 @@
 # Changelog
 
+## [13.10.0] - 2026-09-12
+
+### Added
+
+- Core financial statements on the existing ledger (`LedgerQuery` + trial-balance
+  aggregates). No second reporting engine and no `cached_balance`.
+- `Accounting::report()->profitAndLoss()` — period-flow income statement.
+  Closing journals are excluded so year-end P&L remains a flow.
+- `Accounting::report()->balanceSheet()` — stock statement as of `resolvedTo()`.
+  Unclosed temporary balances appear as `currentEarnings` so
+  Assets = Liabilities + Equity + Current Earnings holds before P&L close.
+- `Accounting::report()->cashMovements()` — cash/bank movement foundation from
+  `accounting.reports.cash_system_keys`. Not an operating/investing/financing
+  statement.
+- `LedgerQuery::excludeDocumentTypes()` for posted-type exclusion (used by P&L).
+- DTOs: `ProfitAndLossReport`, `BalanceSheetReport`, `CashMovementReport`,
+  `StatementLine`.
+- Tests: `ProfitAndLossTest`, `BalanceSheetTest`, `CashMovementTest`.
+- Docs: [docs/20-financial-statements.md](docs/20-financial-statements.md).
+
+### Compatibility
+
+- Existing Trial Balance, General Ledger, opening, closing, and reversal APIs
+  are unchanged. P&L clones the caller's `LedgerQuery` before excluding
+  `closing` documents.
+
+## [13.9.1] - 2026-09-12
+
+### Changed
+
+- Ledger integrity hardening (no new business features). Posted status can only
+  be reached through `DocumentService::post()` / `Document::post()`. Creating a
+  document as posted/voided is rejected. `markAsPosted()` without the internal
+  flag delegates to the canonical post path.
+- `DocumentService::post()` now locks the fiscal year and document rows and
+  re-validates balance, accounts, FY, and period inside the same transaction.
+- Journal lines must have a positive amount and sign `1` or `-1` (model +
+  `DocumentService` + builder). Opening still omits zero lines before persist.
+- Closed fiscal years and periods cannot be reopened via Eloquent `update()`.
+- Accounts reject parent cycles, branch changes after journal lines, and
+  enabling direct posting on a parent that has children.
+- Voiding a posted document cannot smuggle other header field changes.
+- `DocumentBuilder::post()` create+post runs in one transaction.
+- Document numbers are unique on `(fiscal_year_id, numbering_bucket, number)`
+  so `branch.separate_numbering` no longer collides with the old FY-wide unique.
+
+### Documentation
+
+- Canonical invariant catalog: [docs/19-accounting-invariants.md](docs/19-accounting-invariants.md).
+
+### Tests
+
+- `tests/AccountingIntegrityTest.php` — bypass, line semantics, reopen,
+  hierarchy, and transaction-rollback cases.
+
+### Compatibility
+
+- Hosts that posted by `$document->update(['status' => 'posted'])` or created
+  documents with terminal status must switch to `Document::post()`.
+- Zero-amount lines on the public create/post path now throw
+  `InvalidArgumentException` instead of being stored (or, for `0.00` vs `0.01`,
+  being treated only as an unbalanced document).
+
+## [13.9.0] - 2026-09-12
+
+### Added
+
+- `Karnoweb\Accounting\Support\Amount` — canonical decimal value object for all
+  monetary arithmetic (BCMath, no PHP float calculations).
+- Contributor rule and precision contract:
+  [docs/18-monetary-arithmetic.md](docs/18-monetary-arithmetic.md).
+- Tests: `tests/AmountTest.php`, `tests/MonetaryInvariantTest.php`.
+- Composer requirement: `ext-bcmath`.
+
+### Changed
+
+- Journal balance, posting, opening, closing, reversal, cached balances,
+  trial balance, general ledger running balances, and hierarchy rollups now
+  compare and accumulate amounts with exact decimal arithmetic.
+- `abs($difference) < 0.01` epsilon checks are gone. Debit/credit equality is
+  `Amount` comparison at `accounting.general.decimal_places` (default 2).
+- `DocumentBuilder::debit()` / `credit()` accept `int|float|string` and
+  normalize through `Amount` (string amounts are preferred).
+
+### Compatibility
+
+- Existing public return types that were `float` remain `float` (accessors,
+  `BalanceService`, report DTOs). Those values are produced only at the API
+  boundary via `Amount::toFloat()`. Do not use returned floats for further
+  ledger math — convert with `Amount::of()` or keep the decimal string.
+
+### Documentation
+
+- Documentation synchronized to the current implementation (no behavioral change):
+  fiscal-year vs current-year, accounting periods, opening/closing, void vs
+  reversal, report filters (including cost center and period), config
+  enforcement, multi-branch vs tenant, and real public APIs.
+- Historical snapshots marked: `docs/14-implementation/`,
+  `docs/reporting-implementation.md`.
+- Drift checks: `tests/DocumentationConsistencyTest.php`.
+
 ## [13.8.0] - 2026-09-10
 
 ### Added

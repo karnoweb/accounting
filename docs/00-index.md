@@ -7,7 +7,7 @@
 | مورد | مقدار |
 |------|-------|
 | نام پکیج | `karnoweb/laravel-accounting` |
-| نسخه فعلی | `13.8.0` |
+| نسخه فعلی | همان `composer.json` / `Accounting::version()` |
 | PHP | `^8.3` |
 | Laravel | `^13.0` |
 | الگوی حسابداری | Double-Entry |
@@ -42,11 +42,15 @@
 2. [03-architecture.md](03-architecture.md) — معماری فنی و مرزهای دامنه
 3. [04-database-schema.md](04-database-schema.md) — جداول، روابط و محدودیت‌ها
 4. [09-reports.md](09-reports.md) — منبع داده و منطق گزارش‌ها
-5. [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md) — چرخه کامل سال مالی
-6. [17-multi-active-years-and-opening.md](17-multi-active-years-and-opening.md) — چندسال هم‌زمان، افتتاحیه دیرهنگام و carry موقت (فارسی روان)
-7. [12-security.md](12-security.md) — Audit، تغییرناپذیری و محدودیت‌ها
-8. [15-appendix.md](15-appendix.md) — واژه‌نامه، تفاوت مفاهیم مشابه و FAQ
-9. [16-documentation-gaps.md](16-documentation-gaps.md) — شکاف‌های مستندسازی و موارد نیازمند تصمیم انسانی
+5. [20-financial-statements.md](20-financial-statements.md) — سود و زیان، ترازنامه، شالوده گردش نقد
+6. [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md) — چرخه کامل سال مالی
+7. [17-multi-active-years-and-opening.md](17-multi-active-years-and-opening.md) — چندسال هم‌زمان، افتتاحیه دیرهنگام و carry موقت (فارسی روان)
+8. [18-monetary-arithmetic.md](18-monetary-arithmetic.md) — نمایش اعشاری مبلغ‌ها، مقایسه، و قانون مشارکت‌کنندگان
+9. [10-multi-branch.md](10-multi-branch.md) — ایزوله بودن شعبه
+10. [12-security.md](12-security.md) — تمامیت دفتر در برابر authorization میزبان
+11. [19-accounting-invariants.md](19-accounting-invariants.md) — کاتالوگ invariantها و مسیر کانونیکال ثبت
+12. [15-appendix.md](15-appendix.md) — واژه‌نامه، تفاوت مفاهیم مشابه و FAQ
+13. [16-documentation-gaps.md](16-documentation-gaps.md) — کلیدهای unused و کارهای باقی‌مانده
 
 ## نقشه واقعی ماژول‌ها
 
@@ -54,6 +58,7 @@
 
 - `Account`
 - `FiscalYear`
+- `AccountingPeriod`
 - `Document`
 - `DocumentItem`
 - `CostCenter`
@@ -69,20 +74,26 @@
 - `BalanceService`
 - `ReportService`
 - `FiscalYearService`
+- `AccountingPeriodService`
 - `PostingService`
 - `OpeningService`
 - `ClosingService`
 - `ReversalService`
 
+### Support
+
+- `Amount` — حساب اعشاری کانونیکال (BCMath)
+- `AccountHierarchy`
+- `BranchContext`
+
 ### گزارش‌ها و DTOها
 
 - `LedgerQuery`
 - `HierarchyRollup`
-- `TrialBalanceReport`
-- `TrialBalanceRow`
-- `GeneralLedgerReport`
-- `AccountLedger`
-- `LedgerLine`
+- `TrialBalanceReport` / `TrialBalanceRow`
+- `ProfitAndLossReport` / `BalanceSheetReport` / `CashMovementReport` / `StatementLine` / `FinancialStatements`
+- `GeneralLedgerReport` / `AccountLedger` / `LedgerLine`
+- `PaginatedAccountStatement` / `PaginatedCostCenterStatement` / `PaginatedGeneralLedgerSummary` / `GeneralLedgerSummaryRow`
 
 ## نکات مهم برای خواندن این مستندات
 
@@ -90,7 +101,8 @@
 - `reference` فقط یک فیلد متنی روی سند است. در کد هیچ قاعده یکتایی یا semantics خاصی برای آن enforce نشده است.
 - `source_type` و `source_id` فقط لینک polymorphic به منبع تجاری سند هستند و unique نیستند.
 - گزارش‌ها فقط از **دفتر ثبت‌شده** می‌خوانند، نه از `cached_balance`.
-- Cost Center در این نسخه فقط روی `DocumentItem` ذخیره می‌شود و هنوز در گزارش‌های هسته‌ای فیلتر مستقلی ندارد.
+- Cost Center روی `DocumentItem` ذخیره می‌شود و با `LedgerQuery::costCenter()` / `costCenterStatementPaginated()` فیلتر می‌شود. تسهیم خودکار در هسته نیست.
+- شعبه **multi-branch** است نه multi-company / multi-tenant.
 
 ## چه چیزهایی عمداً در این پکیج نیست؟
 
@@ -102,6 +114,12 @@
 - بازگشایی سال مالی / دوره مالی بسته
 - اصلاح بین‌دوره‌ای سال بسته
 - برگشت جزئی سند
+
+## فایل‌های تاریخی (منبع حقیقت نیستند)
+
+- [14-implementation/](14-implementation/README.md) — اسنپ‌شات قدیمی کد
+- [reporting-implementation.md](reporting-implementation.md) — یادداشت طراحی ۱۳.۲.۰
+- بخش‌های طولانی [11-multi-language.md](11-multi-language.md) که helper ساختگی دارند؛ جعبهٔ بالای همان فایل معتبر است
 
 ## وضعیت مثال‌های موجود
 
@@ -115,4 +133,5 @@
 4. [04-database-schema.md](04-database-schema.md)
 5. [usage.md](usage.md)
 6. [09-reports.md](09-reports.md)
-7. [16-documentation-gaps.md](16-documentation-gaps.md)
+7. [20-financial-statements.md](20-financial-statements.md)
+8. [16-documentation-gaps.md](16-documentation-gaps.md)

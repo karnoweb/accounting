@@ -113,7 +113,9 @@ Accounting::document()
 
 ### Auto-detect
 
-اگر `fiscal_year.auto_detect = true` باشد، `DocumentService` می‌تواند از روی تاریخ FY را پیدا کند.
+اگر `fiscal_year.auto_detect = true` باشد، `DocumentService` از روی تاریخ FY را پیدا می‌کند. اگر تاریخی داده شود و سالی منطبق نباشد، `no_fiscal_year_for_date` پرتاب می‌شود و به `current()` fallback نمی‌شود.
+
+`create()` و `post()` هر دو از `PostingService` می‌گذرند: سال `active` + دورهٔ `open` برای همان تاریخ. پیش‌نویس هم بدون دورهٔ باز ذخیره نمی‌شود. مدیریت دوره: `Accounting::period()`.
 
 ## ۵. استفاده از `source_type` و `source_id`
 
@@ -154,6 +156,9 @@ Accounting::document()
 - `DocumentCreated`
 - `DocumentPosted`
 - `DocumentVoided`
+- `AccountingPeriodOpened`
+- `AccountingPeriodClosed`
+- `PostingRejectedForClosedPeriod`
 
 مثال:
 

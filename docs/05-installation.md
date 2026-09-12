@@ -6,6 +6,7 @@
 
 - PHP `^8.3`
 - Laravel `^13.0`
+- `ext-bcmath` (محاسبات پولی؛ الزام `composer.json`)
 
 ## نصب با Composer
 
@@ -40,6 +41,7 @@ php artisan migrate
 با پیشوند `acc_` در حالت پیش‌فرض:
 
 - `acc_fiscal_years`
+- `acc_accounting_periods`
 - `acc_accounts`
 - `acc_cost_centers`
 - `acc_documents`
@@ -47,10 +49,11 @@ php artisan migrate
 - `acc_document_logs`
 - `acc_document_number_sequences`
 
-و همچنین migration افزودن:
+و همچنین ستون‌ها/ایندکس‌های افزوده‌شده:
 
 - `documents.idempotency_key`
 - `documents.reversed_document_id`
+- `documents.accounting_period_id`
 - indexهای reporting
 
 ## آنچه پکیج ایجاد نمی‌کند
@@ -77,9 +80,11 @@ $this->call(\Karnoweb\Accounting\Database\Seeders\DefaultAccountsSeeder::class);
 
 1. config را بررسی کنید
 2. migrationها را اجرا کنید
-3. حداقل یک سال مالی active بسازید
+3. حداقل یک سال مالی `active` بسازید (`activate()` در حالت پیش‌فرض یک دوره `open` تمام‌سال هم می‌سازد)
 4. chart of accounts اولیه را seed کنید
 5. در صورت نیاز مدل `Branch` اپلیکیشن را در config معرفی کنید
+
+`DocumentService::create()` و `post()` هر دو از `PostingService` می‌گذرند: سال باید `active` باشد و تاریخ باید داخل یک دورهٔ `open` بیفتد. ذخیرهٔ پیش‌نویس هم بدون دورهٔ باز رد می‌شود.
 
 ## حداقل راه‌اندازی عملی
 

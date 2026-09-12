@@ -6,18 +6,19 @@
 - **Posting Level**: سطحی از درخت حساب که ثبت مستقیم روی آن مجاز است
 - **Document**: هدر سند حسابداری
 - **DocumentItem**: ردیف سند
-- **Fiscal Year**: تنها دوره مالی persisted در پکیج
-- **Opening**: ثبت مانده ابتدای سال یا انتقال مانده
-- **Closing**: بستن مانده حساب‌های موقت به سود انباشته
-- **Reversal**: سند معکوس‌کننده سند posted
-- **Void**: ابطال سند posted بدون ساخت سند جدید
+- **Fiscal Year**: سال مالی (`draft` / `active` / `closed`)
+- **Accounting Period**: دوره ثبت داخل سال مالی (`draft` / `open` / `closed`)؛ ثبت بدون دورهٔ باز رد می‌شود
+- **Opening**: سند `type=opening` برای مانده ابتدای سال یا انتقال مانده
+- **Closing**: سند `type=closing` برای بستن حساب‌های موقت به سود انباشته — با `FiscalYear::close()` فرق دارد
+- **Reversal**: سند جدید `type=reversal` با مبالغ معکوس؛ اصل posted می‌ماند
+- **Void**: اصل از posted به voided می‌رود و اثر دفتر حذف می‌شود؛ سند جدید ساخته نمی‌شود
 
 ## تفاوت مفاهیم مشابه
 
 ### `void` در برابر `reversal`
 
-- `void`: سند از posted ledger خارج می‌شود
-- `reversal`: سند اصلی می‌ماند و سند معکوس ساخته می‌شود
+- `void`: سند اصلی `POSTED → VOIDED`؛ observer ماندهٔ کش را برمی‌گرداند؛ گزارش‌ها voided را نمی‌بینند. اگر reversal posted برای همان اصل وجود داشته باشد، void رد می‌شود. کلیدهای idempotency افتتاح/اختتام/برگشت پاک می‌شوند.
+- `reversal`: اصل دست‌نخورده می‌ماند؛ سند جدید با علامت‌های معکوس. همان FY باید `active` باشد. روی opening/closing و وقتی closing posted در سال هست، رد می‌شود. کلید `reversal:{id}`. FY/شعبه قابل override نیستند.
 
 ### `FiscalYear::close()` در برابر `ClosingService::closeProfitAndLoss()`
 

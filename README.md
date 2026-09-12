@@ -2,10 +2,11 @@
 
 # Laravel Accounting
 
-پکیج حسابداری دوطرفه (Double-Entry) برای لاراول با ثبت خودکار اسناد، سال مالی، شعبه، مرکز هزینه و گزارش تراز آزمایشی.
+پکیج حسابداری دوطرفه (Double-Entry) برای لاراول با ثبت خودکار اسناد، سال مالی، شعبه، مرکز هزینه، تراز آزمایشی و صورت‌های مالی هسته.
 
 - **PHP:** ^8.3  
 - **Laravel:** ^13.0  
+- **ext-bcmath** (محاسبات پولی)
 
 ---
 
@@ -21,13 +22,17 @@ composer require karnoweb/laravel-accounting:^13.3
 composer require karnoweb/laravel-accounting:^1.0
 ```
 
-نسخه فعلی: **13.4.2** — `Accounting::version()` از `composer.json` خوانده می‌شود.
+نسخه جاری را از `composer.json` یا `Accounting::version()` بخوانید (نه از این README). تاریخچه: [CHANGELOG.md](CHANGELOG.md).
 
 از 13.1 اینثوریانت‌های کرنل دفتر (ثبت فقط روی حساب قابل‌ثبت، تغییرناپذیری خطوط posted، مسیر کانونیکال post، تراز FY-aware، شماره‌گذاری امن، ایزوله بودن builder) در خود پکیج تضمین می‌شوند. جزئیات: [docs/usage.md](docs/usage.md).
 
 از **13.3** سال مالی یک چرخهٔ واقعی دارد (`draft → active → closed`) با `create` / `update` / `activate` / `close`. بستن سال ثبت سند را متوقف می‌کند ولی تاریخچه و گزارش‌ها را حذف نمی‌کند. کنترل ثبت از `Accounting::posting()->assertAllowed()` می‌گذرد. افتتاحیه، انتقال مانده و بستن سود و زیان روی `Accounting::opening()` / `Accounting::closing()` هستند. جزئیات: [docs/fiscal-year-lifecycle.md](docs/fiscal-year-lifecycle.md).
 
+از **13.9** تمام محاسبات پولی هسته از `Amount` (BCMath) می‌گذرد؛ تعادل سند و گزارش‌ها دیگر به float یا تلورانس `0.01` وابسته نیستند. قرارداد: [docs/18-monetary-arithmetic.md](docs/18-monetary-arithmetic.md).
+
 از **13.8** چند سال می‌توانند هم‌زمان `active` باشند؛ `is_current` فقط پیش‌فرض UI است و سال سند از روی تاریخ resolve می‌شود. افتتاحیه می‌تواند بعد از عملیات قطعی شود، ولی تا بسته شدن سال قبل نهایی نمی‌شود؛ `carryForward` موقت از سال هنوزباز هم پشتیبانی می‌شود. راهنمای فارسی: [docs/17-multi-active-years-and-opening.md](docs/17-multi-active-years-and-opening.md).
+
+از **13.10** صورت سود و زیان، ترازنامه و شالودهٔ گردش نقد روی همان `LedgerQuery` اضافه شده‌اند. صورت جریان عملیاتی/سرمایه‌گذاری/تأمین مالی هنوز وجود ندارد. جزئیات: [docs/20-financial-statements.md](docs/20-financial-statements.md).
 
 از **13.2** یک لایهٔ گزارش‌گیری واقعی روی همان دفتر ثبت‌شده (`acc_document_items JOIN acc_documents`، بدون `cached_balance`) اضافه شده: تراز آزمایشی واقعی با رول‌آپ سلسله‌مراتب (`trialBalanceDetailed`)، دفتر کل (`generalLedger`)، دفتر معین یک حساب (`accountStatement`) و گردش حساب FY/شعبه-آگاه. جزئیات: [docs/09-reports.md](docs/09-reports.md).
 
@@ -85,7 +90,7 @@ php artisan vendor:publish --tag=accounting-migrations
 php artisan migrate
 ```
 
-جداولی که پکیج ایجاد می‌کند: `acc_fiscal_years`, `acc_accounts`, `acc_cost_centers`, `acc_documents`, `acc_document_items`, `acc_document_logs`, `acc_document_number_sequences` (با پیشوند از `config/accounting.general.prefix`). ستون اختیاری `documents.idempotency_key` برای یکتایی retry. **جدول `branches` توسط پکیج ساخته نمی‌شود**؛ پکیج فقط در جداول `accounts` و `documents` فیلد **`branch_id`** (nullable) دارد. شعبه پیش‌فرض از `config('accounting.branch.default_id')` تأمین می‌شود؛ در صورت نیاز می‌توانید جدول/مدل شعبه را در اپلیکیشن داشته باشید و در config به آن اشاره کنید.
+جداولی که پکیج ایجاد می‌کند: `acc_fiscal_years`, `acc_accounting_periods`, `acc_accounts`, `acc_cost_centers`, `acc_documents`, `acc_document_items`, `acc_document_logs`, `acc_document_number_sequences` (با پیشوند از `config/accounting.general.prefix`). ستون اختیاری `documents.idempotency_key` برای یکتایی retry؛ `documents.accounting_period_id` دوره ثبت را نگه می‌دارد. **جدول `branches` توسط پکیج ساخته نمی‌شود**؛ پکیج فقط در جداول `accounts` و `documents` فیلد **`branch_id`** (nullable) دارد. شعبه پیش‌فرض از `config('accounting.branch.default_id')` تأمین می‌شود.
 
 ### ترجمه‌ها (زبان)
 
@@ -170,7 +175,7 @@ php artisan vendor:publish --provider="Karnoweb\Accounting\AccountingServiceProv
    - `accounting.branch.default_id` — شعبه پیش‌فرض (شناسه عددی)
    - `accounting.account.custom_seed` — تعریف حساب‌های اضافی که همراه سیدر پیش‌فرض سینک می‌شوند
    - `accounting.account.system_accounts` — کد حساب‌های سیستمی (صندوق، بانک، دریافتنی، پرداختنی و …)
-   - `accounting.document.allowed_types` — انواع مجاز سند
+   - `accounting.document.allowed_types` — فهرست قراردادی انواع سند (در هسته enforce سراسری ندارد)
 
 ---
 
@@ -181,7 +186,7 @@ php artisan vendor:publish --provider="Karnoweb\Accounting\AccountingServiceProv
 - فاسیاد و نقطه ورود
 - ثبت سند (DocumentBuilder، save/post، شعبه، سال مالی، مرکز هزینه)
 - حساب‌های سیستمی و مدیریت حساب‌ها
-- تراز و گزارش تراز آزمایشی
+- تراز آزمایشی، سود و زیان، ترازنامه، شالوده گردش نقد
 - سال مالی و شعبه
 - تریت `HasAccount` برای مدل‌های دارای حساب
 - رویدادها و استثناها

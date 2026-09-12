@@ -18,6 +18,7 @@ use Karnoweb\Accounting\Models\Document;
 use Karnoweb\Accounting\Models\DocumentItem;
 use Karnoweb\Accounting\Models\DocumentNumberSequence;
 use Karnoweb\Accounting\Models\FiscalYear;
+use Karnoweb\Accounting\Support\Amount;
 use Karnoweb\Accounting\Support\BranchContext;
 use RuntimeException;
 
@@ -53,6 +54,7 @@ class DocumentService
                     );
                     $this->validateItems($data['items'] ?? [], $branchId, (bool) ($data['balance_required'] ?? true));
                     $this->assertIdempotencyKeyAvailable($data['idempotency_key'] ?? null);
+                    $status = $this->assertCreatableStatus($data['status'] ?? DocumentStatus::DRAFT);
 
                     $number = $manualNumber
                         ? (int) $data['number']
@@ -63,10 +65,11 @@ class DocumentService
                         'accounting_period_id' => $period->id,
                         'branch_id' => $branchId,
                         'number' => $number,
+                        'numbering_bucket' => $this->sequenceBranchId($branchId),
                         'reference' => $data['reference'] ?? null,
                         'date' => $data['date'],
                         'type' => $data['type'],
-                        'status' => $data['status'] ?? DocumentStatus::DRAFT,
+                        'status' => $status,
                         'description' => $data['description'] ?? null,
                         'notes' => $data['notes'] ?? null,
                         'source_type' => $data['source_type'] ?? null,
@@ -107,37 +110,44 @@ class DocumentService
      */
     public function post(Document|int $document): Document
     {
-        $document = $document instanceof Document
-            ? $document->loadMissing(['items.account', 'fiscalYear'])
-            : Document::with(['items.account', 'fiscalYear'])->findOrFail($document);
+        $id = $document instanceof Document ? $document->id : $document;
 
-        if ( ! $document->status->canPost()) {
-            throw new Exception(__('accounting::accounting.messages.document_cannot_post'));
-        }
+        return DB::transaction(function () use ($id) {
+            // FY → document → period. Matches void() and serializes against opening/closing.
+            $header = Document::query()->whereKey($id)->firstOrFail();
+            FiscalYear::query()->whereKey($header->fiscal_year_id)->lockForUpdate()->firstOrFail();
 
-        $minItems = (int) config('accounting.document.min_items', 2);
-        if ($document->items->count() < $minItems) {
-            throw new InvalidArgumentException(__('accounting::accounting.validation.items_required', ['min' => $minItems]));
-        }
+            $document = Document::query()
+                ->whereKey($id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $document->load(['items.account', 'fiscalYear']);
 
-        if ( ! $this->isBalanced($document)) {
-            throw new UnbalancedDocumentException(
-                $document->debit_total,
-                $document->credit_total
-            );
-        }
-
-        foreach ($document->items as $item) {
-            $account = $item->account ?? Account::find($item->account_id);
-            if ( ! $account) {
-                throw new InvalidArgumentException(__('accounting::accounting.validation.account_invalid'));
+            if ( ! $document->status->canPost()) {
+                throw new Exception(__('accounting::accounting.messages.document_cannot_post'));
             }
-            $this->accountService->assertPostable($account);
-            $this->assertAccountBranchMatches($account, $document->branch_id !== null ? (int) $document->branch_id : null);
-        }
 
-        return DB::transaction(function () use ($document) {
-            // Re-check FY + period under row locks so close-vs-post cannot race.
+            $minItems = (int) config('accounting.document.min_items', 2);
+            if ($document->items->count() < $minItems) {
+                throw new InvalidArgumentException(__('accounting::accounting.validation.items_required', ['min' => $minItems]));
+            }
+
+            if ( ! $this->isBalanced($document)) {
+                throw new UnbalancedDocumentException(
+                    $document->debit_total,
+                    $document->credit_total
+                );
+            }
+
+            foreach ($document->items as $item) {
+                $account = $item->account ?? Account::find($item->account_id);
+                if ( ! $account) {
+                    throw new InvalidArgumentException(__('accounting::accounting.validation.account_invalid'));
+                }
+                $this->accountService->assertPostable($account);
+                $this->assertAccountBranchMatches($account, $document->branch_id !== null ? (int) $document->branch_id : null);
+            }
+
             $period = $this->assertPostingAllowed(
                 $document->fiscalYear,
                 $document->date->format('Y-m-d'),
@@ -149,6 +159,8 @@ class DocumentService
                 $document->accounting_period_id = $period->id;
                 $document->save();
             }
+
+            $document->allowCanonicalPost = true;
 
             return $document->markAsPosted($this->currentUserId());
         });
@@ -172,9 +184,9 @@ class DocumentService
 
     public function isBalanced(Document $document): bool
     {
-        $balance = $document->items->sum(fn ($item) => $item->amount * $item->sign);
-
-        return abs($balance) < 0.01;
+        return Amount::sum(
+            $document->items->map(fn ($item) => Amount::of($item->amount)->signed((int) $item->sign))
+        )->isZero();
     }
 
     /**
@@ -246,6 +258,16 @@ class DocumentService
         }
 
         foreach ($items as $item) {
+            $sign = (int) ($item['sign'] ?? 0);
+            if ($sign !== 1 && $sign !== -1) {
+                throw new InvalidArgumentException(__('accounting::accounting.validation.sign_invalid'));
+            }
+
+            $amount = Amount::of($item['amount'] ?? 0);
+            if ( ! $amount->isPositive()) {
+                throw new InvalidArgumentException(__('accounting::accounting.validation.amount_positive'));
+            }
+
             $account = Account::find($item['account_id'] ?? null);
 
             if ( ! $account) {
@@ -260,16 +282,26 @@ class DocumentService
             return;
         }
 
-        $balance = 0;
-        foreach ($items as $item) {
-            $balance += ($item['amount'] ?? 0) * ($item['sign'] ?? 1);
-        }
+        $balance = Amount::sum(array_map(
+            fn (array $item) => Amount::of($item['amount'] ?? 0)->signed((int) ($item['sign'] ?? 1)),
+            $items
+        ));
 
-        if (config('accounting.validation.strict_balance', true) && abs($balance) >= 0.01) {
-            $debit = collect($items)->where('sign', 1)->sum('amount');
-            $credit = collect($items)->where('sign', -1)->sum('amount');
+        if (config('accounting.validation.strict_balance', true) && ! $balance->isZero()) {
+            $debit = Amount::sum(
+                array_map(
+                    fn (array $item) => ((int) ($item['sign'] ?? 1)) === 1 ? Amount::of($item['amount'] ?? 0) : Amount::zero(),
+                    $items
+                )
+            );
+            $credit = Amount::sum(
+                array_map(
+                    fn (array $item) => ((int) ($item['sign'] ?? 1)) === -1 ? Amount::of($item['amount'] ?? 0) : Amount::zero(),
+                    $items
+                )
+            );
 
-            throw new UnbalancedDocumentException($debit, $credit);
+            throw new UnbalancedDocumentException($debit->toFloat(), $credit->toFloat());
         }
     }
 
@@ -280,7 +312,7 @@ class DocumentService
                 'document_id' => $document->id,
                 'account_id' => $item['account_id'],
                 'cost_center_id' => $item['cost_center_id'] ?? null,
-                'amount' => $item['amount'],
+                'amount' => Amount::of($item['amount'] ?? 0)->toStorage(),
                 'sign' => $item['sign'],
                 'description' => $item['description'] ?? null,
                 'order' => $item['order'] ?? $index,
@@ -361,6 +393,23 @@ class DocumentService
         }
     }
 
+    private function assertCreatableStatus(mixed $status): DocumentStatus
+    {
+        if ($status instanceof DocumentStatus) {
+            $resolved = $status;
+        } else {
+            $resolved = DocumentStatus::tryFrom((string) $status) ?? DocumentStatus::DRAFT;
+        }
+
+        if (in_array($resolved, [DocumentStatus::POSTED, DocumentStatus::VOIDED], true)) {
+            throw new InvalidArgumentException(
+                __('accounting::accounting.messages.document_cannot_create_terminal_status')
+            );
+        }
+
+        return $resolved;
+    }
+
     private function assertIdempotencyKeyAvailable(?string $key): void
     {
         if ($key === null || $key === '') {
@@ -378,7 +427,8 @@ class DocumentService
 
         return str_contains($message, 'documents_fiscal_year_id_number_unique')
             || str_contains($message, 'acc_documents_fiscal_year_id_number_unique')
-            || (bool) preg_match('/unique constraint failed:\s*[`"\']?[\w.]*fiscal_year_id[`"\']?\s*,\s*[`"\']?[\w.]*number/i', $message);
+            || str_contains($message, 'acc_documents_fy_bucket_number_unique')
+            || (bool) preg_match('/unique constraint failed:\s*[`"\']?[\w.]*fiscal_year_id[`"\']?\s*,\s*[`"\']?[\w.]*(numbering_bucket|number)/i', $message);
     }
 
     private function isIdempotencyConflict(QueryException $e): bool

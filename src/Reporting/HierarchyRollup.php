@@ -6,6 +6,7 @@ namespace Karnoweb\Accounting\Reporting;
 
 use Illuminate\Support\Collection;
 use Karnoweb\Accounting\Models\Account;
+use Karnoweb\Accounting\Support\Amount;
 
 /**
  * Builds the L0-L3 account tree once and rolls up L3 journal metrics upward in a
@@ -26,12 +27,25 @@ final class HierarchyRollup
             ->orderBy('code')
             ->get();
 
-        $zero = ['opening_debit' => 0.0, 'opening_credit' => 0.0, 'period_debit' => 0.0, 'period_credit' => 0.0];
+        $zero = [
+            'opening_debit' => Amount::zero(),
+            'opening_credit' => Amount::zero(),
+            'period_debit' => Amount::zero(),
+            'period_credit' => Amount::zero(),
+        ];
 
-        /** @var array<int, array{opening_debit: float, opening_credit: float, period_debit: float, period_credit: float}> $metrics */
+        /** @var array<int, array{opening_debit: Amount, opening_credit: Amount, period_debit: Amount, period_credit: Amount}> $metrics */
         $metrics = [];
         foreach ($accounts as $account) {
-            $metrics[$account->id] = $leafMetrics[$account->id] ?? $zero;
+            $leaf = $leafMetrics[$account->id] ?? null;
+            $metrics[$account->id] = $leaf === null
+                ? $zero
+                : [
+                    'opening_debit' => Amount::of($leaf['opening_debit'] ?? 0),
+                    'opening_credit' => Amount::of($leaf['opening_credit'] ?? 0),
+                    'period_debit' => Amount::of($leaf['period_debit'] ?? 0),
+                    'period_credit' => Amount::of($leaf['period_credit'] ?? 0),
+                ];
         }
 
         // Deepest level first: by the time a node is folded into its parent, its own
@@ -41,10 +55,10 @@ final class HierarchyRollup
                 continue;
             }
 
-            $metrics[$account->parent_id]['opening_debit'] += $metrics[$account->id]['opening_debit'];
-            $metrics[$account->parent_id]['opening_credit'] += $metrics[$account->id]['opening_credit'];
-            $metrics[$account->parent_id]['period_debit'] += $metrics[$account->id]['period_debit'];
-            $metrics[$account->parent_id]['period_credit'] += $metrics[$account->id]['period_credit'];
+            $metrics[$account->parent_id]['opening_debit'] = $metrics[$account->parent_id]['opening_debit']->add($metrics[$account->id]['opening_debit']);
+            $metrics[$account->parent_id]['opening_credit'] = $metrics[$account->parent_id]['opening_credit']->add($metrics[$account->id]['opening_credit']);
+            $metrics[$account->parent_id]['period_debit'] = $metrics[$account->parent_id]['period_debit']->add($metrics[$account->id]['period_debit']);
+            $metrics[$account->parent_id]['period_credit'] = $metrics[$account->parent_id]['period_credit']->add($metrics[$account->id]['period_credit']);
         }
 
         return $accounts->map(function (Account $account) use ($metrics) {
@@ -58,12 +72,12 @@ final class HierarchyRollup
                 level: $account->level,
                 type: $account->type->value,
                 nature: $account->nature->value,
-                openingDebit: $m['opening_debit'],
-                openingCredit: $m['opening_credit'],
-                periodDebit: $m['period_debit'],
-                periodCredit: $m['period_credit'],
-                endingDebit: $m['opening_debit'] + $m['period_debit'],
-                endingCredit: $m['opening_credit'] + $m['period_credit'],
+                openingDebit: $m['opening_debit']->toFloat(),
+                openingCredit: $m['opening_credit']->toFloat(),
+                periodDebit: $m['period_debit']->toFloat(),
+                periodCredit: $m['period_credit']->toFloat(),
+                endingDebit: $m['opening_debit']->add($m['period_debit'])->toFloat(),
+                endingCredit: $m['opening_credit']->add($m['period_credit'])->toFloat(),
             );
         })->values();
     }

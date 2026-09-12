@@ -160,7 +160,7 @@ abstract class TestCase extends Orchestra
         return compact('group', 'general', 'subsidiary', 'detail', 'detail2');
     }
 
-    protected function balancedItems(Account $debit, Account $credit, float $amount = 100.0): array
+    protected function balancedItems(Account $debit, Account $credit, int|float|string $amount = 100.0): array
     {
         return [
             ['account_id' => $debit->id, 'amount' => $amount, 'sign' => 1, 'description' => 'debit'],

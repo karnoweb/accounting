@@ -17,14 +17,16 @@ use Karnoweb\Accounting\Models\CostCenter;
 use Karnoweb\Accounting\Models\Document;
 use Karnoweb\Accounting\Models\DocumentItem;
 use Karnoweb\Accounting\Models\FiscalYear;
+use Karnoweb\Accounting\Support\Amount;
 
 /**
  * Reusable, deterministic query foundation for accounting reports.
  *
  * Always reads from the posted journal (acc_document_items JOIN acc_documents) —
  * never from Account::cached_balance, parent cached balances, or any operational
- * model. Trial Balance, General Ledger, Account Statement and turnover all build
- * on this same object so they agree on filters and ordering.
+ * model. Trial Balance, General Ledger, Account Statement, Profit & Loss,
+ * Balance Sheet, cash movements, and turnover all build on this same
+ * object so they agree on filters and ordering.
  *
  * Ordering is always: documents.date, documents.number, documents.id,
  * document_items.order, document_items.id — never created_at.
@@ -58,6 +60,9 @@ final class LedgerQuery
     private ?int $costCenterId = null;
 
     private bool $costCenterFilterApplied = false;
+
+    /** @var list<string> */
+    private array $excludedDocumentTypes = [];
 
     public static function make(): self
     {
@@ -162,6 +167,23 @@ final class LedgerQuery
         return $this;
     }
 
+    /**
+     * Drop posted documents of these types from both period and opening queries.
+     * Profit & Loss uses this to ignore `closing` journals so year-end P&L stays a flow statement.
+     */
+    public function excludeDocumentTypes(string ...$types): self
+    {
+        $this->excludedDocumentTypes = array_values(array_unique(array_filter($types, fn (string $type) => $type !== '')));
+
+        return $this;
+    }
+
+    /** @return list<string> */
+    public function excludedDocumentTypes(): array
+    {
+        return $this->excludedDocumentTypes;
+    }
+
     /** @return list<int> */
     public function accountIds(): array
     {
@@ -246,6 +268,7 @@ final class LedgerQuery
         $this->applyAccountFilter($query, $items);
         $this->applyBranchFilter($query, $documents);
         $this->applyCostCenterFilter($query, $items);
+        $this->applyDocumentTypeExclusion($query, $documents);
 
         $from = $this->resolvedFrom();
         $to = $this->resolvedTo();
@@ -287,6 +310,7 @@ final class LedgerQuery
         $this->applyAccountFilter($query, $items);
         $this->applyBranchFilter($query, $documents);
         $this->applyCostCenterFilter($query, $items);
+        $this->applyDocumentTypeExclusion($query, $documents);
 
         if ($this->fiscalYearId !== null) {
             $query->where("{$documents}.fiscal_year_id", $this->fiscalYearId);
@@ -313,6 +337,15 @@ final class LedgerQuery
         } else {
             $query->where("{$documents}.branch_id", $this->branchId);
         }
+    }
+
+    private function applyDocumentTypeExclusion(QueryBuilder $query, string $documents): void
+    {
+        if ($this->excludedDocumentTypes === []) {
+            return;
+        }
+
+        $query->whereNotIn("{$documents}.type", $this->excludedDocumentTypes);
     }
 
     private function applyCostCenterFilter(QueryBuilder $query, string $items): void
@@ -349,7 +382,7 @@ final class LedgerQuery
             ->get();
 
         foreach ($rows as $row) {
-            $balances[(int) $row->account_id] = (float) $row->balance;
+            $balances[(int) $row->account_id] = Amount::of($row->balance)->toFloat();
         }
 
         return $balances;
@@ -372,7 +405,10 @@ final class LedgerQuery
             ->get();
 
         foreach ($rows as $row) {
-            $totals[(int) $row->account_id] = ['debit' => (float) $row->debit, 'credit' => (float) $row->credit];
+            $totals[(int) $row->account_id] = [
+                'debit' => Amount::of($row->debit)->toFloat(),
+                'credit' => Amount::of($row->credit)->toFloat(),
+            ];
         }
 
         return $totals;
@@ -391,10 +427,14 @@ final class LedgerQuery
             ->selectRaw("COALESCE(SUM({$items}.debit), 0) as debit, COALESCE(SUM({$items}.credit), 0) as credit")
             ->first();
 
-        $debit = (float) ($row->debit ?? 0);
-        $credit = (float) ($row->credit ?? 0);
+        $debit = Amount::of($row->debit ?? 0);
+        $credit = Amount::of($row->credit ?? 0);
 
-        return ['debit' => $debit, 'credit' => $credit, 'balance' => $debit - $credit];
+        return [
+            'debit' => $debit->toFloat(),
+            'credit' => $credit->toFloat(),
+            'balance' => $debit->subtract($credit)->toFloat(),
+        ];
     }
 
     /**
@@ -417,8 +457,8 @@ final class LedgerQuery
                 ->get();
 
             foreach ($openingRows as $row) {
-                $result[(int) $row->account_id]['opening_debit'] = (float) $row->opening_debit;
-                $result[(int) $row->account_id]['opening_credit'] = (float) $row->opening_credit;
+                $result[(int) $row->account_id]['opening_debit'] = Amount::of($row->opening_debit)->toFloat();
+                $result[(int) $row->account_id]['opening_credit'] = Amount::of($row->opening_credit)->toFloat();
             }
         }
 
@@ -500,7 +540,7 @@ final class LedgerQuery
             ->selectRaw('COALESCE(SUM(debit - credit), 0) as prefix')
             ->first();
 
-        return (float) ($row->prefix ?? 0);
+        return Amount::of($row->prefix ?? 0)->toFloat();
     }
 
     /**

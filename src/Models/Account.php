@@ -13,9 +13,11 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Karnoweb\Accounting\Enums\AccountNature;
 use Karnoweb\Accounting\Enums\AccountType;
 use Karnoweb\Accounting\Exceptions\InactiveAccountException;
+use Karnoweb\Accounting\Exceptions\InvalidAccountHierarchyException;
 use Karnoweb\Accounting\Exceptions\InvalidPostingAccountException;
 use Karnoweb\Accounting\Exceptions\SystemAccountException;
 use Karnoweb\Accounting\Support\AccountHierarchy;
+use Karnoweb\Accounting\Support\Amount;
 
 class Account extends BaseModel
 {
@@ -71,6 +73,26 @@ class Account extends BaseModel
             if ($account->is_system && $account->isDirty(['code', 'type', 'nature'])) {
                 throw new SystemAccountException(
                     __('accounting::accounting.messages.system_account_protected')
+                );
+            }
+
+            if ($account->isDirty('parent_id')) {
+                $account->assertParentDoesNotCycle();
+            }
+
+            if ($account->isDirty('branch_id') && $account->items()->exists()) {
+                throw new InvalidAccountHierarchyException(
+                    __('accounting::accounting.messages.account_branch_locked')
+                );
+            }
+
+            if (
+                $account->isDirty('allow_direct_posting')
+                && $account->allow_direct_posting
+                && $account->children()->exists()
+            ) {
+                throw new InvalidAccountHierarchyException(
+                    __('accounting::accounting.messages.account_cannot_enable_posting_with_children')
                 );
             }
         });
@@ -143,9 +165,11 @@ class Account extends BaseModel
 
     public function getNaturalBalanceAttribute(): float
     {
+        $cached = Amount::of($this->cached_balance ?? 0);
+
         return $this->nature === AccountNature::DEBIT
-            ? (float) $this->cached_balance
-            : -(float) $this->cached_balance;
+            ? $cached->toFloat()
+            : $cached->negate()->toFloat();
     }
 
     public function balance(?FiscalYear $fiscalYear = null): float
@@ -158,7 +182,7 @@ class Account extends BaseModel
                 }
             });
 
-        return (float) ($query->selectRaw('COALESCE(SUM(amount * sign), 0) as balance')->value('balance') ?? 0);
+        return Amount::of($query->selectRaw('COALESCE(SUM(amount * sign), 0) as balance')->value('balance') ?? 0)->toFloat();
     }
 
     /**
@@ -211,6 +235,24 @@ class Account extends BaseModel
         }
 
         return ! ($this->children()->exists());
+    }
+
+    private function assertParentDoesNotCycle(): void
+    {
+        $parentId = $this->parent_id !== null ? (int) $this->parent_id : null;
+        $seen = [$this->id];
+
+        while ($parentId !== null) {
+            if (in_array($parentId, $seen, true)) {
+                throw new InvalidAccountHierarchyException(
+                    __('accounting::accounting.messages.account_parent_cycle')
+                );
+            }
+
+            $seen[] = $parentId;
+            $parentId = Account::query()->whereKey($parentId)->value('parent_id');
+            $parentId = $parentId !== null ? (int) $parentId : null;
+        }
     }
 
     public function refreshBalance(): float

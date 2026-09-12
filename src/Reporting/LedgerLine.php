@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Karnoweb\Accounting\Reporting;
 
 use Carbon\Carbon;
+use Karnoweb\Accounting\Support\Amount;
 
 /**
  * One journal line as read from the posted ledger (acc_document_items JOIN acc_documents).
@@ -47,8 +48,8 @@ final class LedgerLine
             reference: $row->reference,
             sourceType: $row->source_type,
             sourceId: $row->source_id !== null ? (int) $row->source_id : null,
-            debit: (float) $row->debit,
-            credit: (float) $row->credit,
+            debit: Amount::of($row->debit)->toFloat(),
+            credit: Amount::of($row->credit)->toFloat(),
             fiscalYearId: $row->fiscal_year_id !== null ? (int) $row->fiscal_year_id : null,
             branchId: $row->branch_id !== null ? (int) $row->branch_id : null,
             order: (int) $row->item_order,
@@ -60,7 +61,7 @@ final class LedgerLine
 
     public function signedAmount(): float
     {
-        return $this->debit - $this->credit;
+        return Amount::signedBalance($this->debit, $this->credit)->toFloat();
     }
 
     /** @return array<string, mixed> */

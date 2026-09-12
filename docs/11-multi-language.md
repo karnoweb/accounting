@@ -4,11 +4,13 @@
 
 ## Multi-Language
 
+> **وضعیت فعلی:** پکیج فایل‌های `lang/en/accounting.php` و `lang/fa/accounting.php` را با تگ **`accounting-lang`** منتشر می‌کند. namespace ترجمه `Karnoweb\Accounting` است (`__('accounting::accounting....')`). helper به نام `accounting_trans` وجود ندارد. تگ publish جدا per-locale وجود ندارد. `FiscalYear` و `AccountingPeriod` متد `status_label` دارند؛ `Document` و `Account` ندارند — برای برچسب وضعیت از `Enum::label()` استفاده کنید. انواع سند شامل `reversal` هم هست.
+
 ---
 
 ## مقدمه
 
-این بخش نحوه پیکربندی و استفاده از قابلیت چندزبانگی پکیج حسابداری را شرح می‌دهد. پکیج از سیستم ترجمه Laravel استفاده می‌کند.
+این بخش نحوه پیکربندی و استفاده از قابلیت چندزبانگی پکیج حسابداری را شرح می‌دهد. پکیج از سیستم ترجمه Laravel استفاده می‌کند. مثال‌های helper یا publish tag ساختگی در ادامهٔ این فایل را منبع حقیقت ندانید؛ جعبهٔ بالا و کد فعلی مبنا هستند.
 
 ---
 

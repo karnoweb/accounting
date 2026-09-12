@@ -6,6 +6,7 @@ namespace Karnoweb\Accounting\Reporting;
 
 use Illuminate\Support\Collection;
 use Karnoweb\Accounting\Support\AccountHierarchy;
+use Karnoweb\Accounting\Support\Amount;
 
 /**
  * Result of ReportService::trialBalanceDetailed() — every account (L0-L3), flat,
@@ -48,12 +49,12 @@ final class TrialBalanceReport
         $detail = $this->detail();
 
         return [
-            'opening_debit' => (float) $detail->sum(fn (TrialBalanceRow $r) => $r->openingDebit),
-            'opening_credit' => (float) $detail->sum(fn (TrialBalanceRow $r) => $r->openingCredit),
-            'period_debit' => (float) $detail->sum(fn (TrialBalanceRow $r) => $r->periodDebit),
-            'period_credit' => (float) $detail->sum(fn (TrialBalanceRow $r) => $r->periodCredit),
-            'ending_debit' => (float) $detail->sum(fn (TrialBalanceRow $r) => $r->endingDebit),
-            'ending_credit' => (float) $detail->sum(fn (TrialBalanceRow $r) => $r->endingCredit),
+            'opening_debit' => Amount::sum($detail->map(fn (TrialBalanceRow $r) => $r->openingDebit))->toFloat(),
+            'opening_credit' => Amount::sum($detail->map(fn (TrialBalanceRow $r) => $r->openingCredit))->toFloat(),
+            'period_debit' => Amount::sum($detail->map(fn (TrialBalanceRow $r) => $r->periodDebit))->toFloat(),
+            'period_credit' => Amount::sum($detail->map(fn (TrialBalanceRow $r) => $r->periodCredit))->toFloat(),
+            'ending_debit' => Amount::sum($detail->map(fn (TrialBalanceRow $r) => $r->endingDebit))->toFloat(),
+            'ending_credit' => Amount::sum($detail->map(fn (TrialBalanceRow $r) => $r->endingCredit))->toFloat(),
         ];
     }
 

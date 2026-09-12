@@ -1,6 +1,7 @@
 # مرجع API
 
 این فایل فقط APIهایی را پوشش می‌دهد که در کد فعلی وجود دارند.
+نسخه پکیج را از `composer.json` / `Accounting::version()` بخوانید، نه از این سند.
 
 ## Facade اصلی
 
@@ -13,9 +14,9 @@ use Karnoweb\Accounting\Facades\Accounting;
 | متد | خروجی | شرح |
 |-----|-------|-----|
 | `version()` | `string` | نسخه پکیج از `composer.json` |
-| `currentFiscalYear()` | `?FiscalYear` | سال مالی active جاری |
-| `currentBranch()` | `?Model` | شعبه پیش‌فرض از config |
-| `systemAccount($key)` | `Account` | resolve حساب سیستمی |
+| `currentFiscalYear()` | `?FiscalYear` | سال `active` با `is_current`، وگرنه اولین سال `active` |
+| `currentBranch()` | `?Model` | شعبه از resolver / `default_id` / `is_default` |
+| `systemAccount(string $key, ?int $branchId = null)` | `Account` | resolve حساب سیستمی، اختیاری برای یک شعبه |
 
 ### دسترسی به سرویس‌ها
 
@@ -32,229 +33,50 @@ use Karnoweb\Accounting\Facades\Accounting;
 | `closing()` | `ClosingService` |
 | `reversal()` | `ReversalService` |
 
-## `DocumentBuilder`
+هلپرهای سراسری مثل `accounting()`, `current_fiscal_year()`, `system_account()` در پکیج **وجود ندارند**.
 
-### متدهای header
+## `DocumentBuilder`
 
 | متد | ورودی |
 |-----|-------|
 | `type(string $type)` | نوع سند |
-| `date(Carbon|string $date)` | تاریخ |
+| `date(Carbon\|string $date)` | تاریخ |
 | `description(string $text)` | شرح |
 | `notes(string $text)` | یادداشت |
 | `reference(string $text)` | مرجع |
-| `branch(Model|int $branch)` | شعبه |
-| `fiscalYear(FiscalYear|int $fiscalYear)` | سال مالی |
+| `branch(Model\|int $branch)` | شعبه |
+| `fiscalYear(FiscalYear\|int $fiscalYear)` | سال مالی |
 | `source(Model $model)` | منبع polymorphic |
 | `idempotencyKey(string $key)` | کلید یکتایی retry |
 | `meta(array $meta)` | داده اضافی |
+| `debit(Account\|int $account, int\|float\|string $amount, ?string $description = null)` | ردیف بدهکار (رشته اعشاری ترجیح داده می‌شود) |
+| `credit(Account\|int $account, int\|float\|string $amount, ?string $description = null)` | ردیف بستانکار |
+| `costCenter(CostCenter\|int\|null $center)` | مرکز هزینه برای ردیف آخر یا بعدی |
+| `save()` | ایجاد سند draft |
+| `post()` | ایجاد و ثبت قطعی |
+| `toArray()` | payload فعلی |
 
-### متدهای ردیف
-
-| متد | ورودی |
-|-----|-------|
-| `debit(Account|int $account, float $amount, ?string $description = null)` | ردیف بدهکار |
-| `credit(Account|int $account, float $amount, ?string $description = null)` | ردیف بستانکار |
-| `costCenter(CostCenter|int|null $center)` | مرکز هزینه برای ردیف آخر یا بعدی |
-
-### متدهای نهایی
-
-| متد | خروجی | شرح |
-|-----|-------|-----|
-| `save()` | `Document` | ایجاد سند draft |
-| `post()` | `Document` | ایجاد و ثبت قطعی |
-| `toArray()` | `array` | payload فعلی builder |
-
-### نکات
-
-- هر `Accounting::document()` یک builder تازه می‌سازد.
-- بعد از `save()` یا `post()`، state builder reset می‌شود.
-- متدهایی مثل `item()`, `validate()`, `getItems()`, `getTotal()` در کد فعلی وجود ندارند.
+- هر `Accounting::document()` یک builder تازه است و بعد از `save()`/`post()` ریست می‌شود.
+- `item()`, `validate()`, `getItems()`, `getTotal()` وجود ندارند.
+- `create()`/`save()` هم از `PostingService` رد می‌شوند: سال مالی `active` و دوره `open` لازم است.
 
 ## `AccountService`
-
-### متدهای اصلی
 
 | متد | شرح |
 |-----|-----|
 | `create(array $data)` | ایجاد حساب |
-| `assertPostable(Account|int $account)` | اطمینان از قابل‌ثبت بودن |
+| `assertPostable(Account\|int $account)` | اطمینان از قابل‌ثبت بودن |
 | `find(int $id)` | جستجو با شناسه |
 | `findOrFail(int $id)` | جستجو با خطا |
-| `findByCode(string $code)` | جستجو با کد |
-| `findByCodeOrFail(string $code)` | جستجو با خطا |
-| `findByEntity(string $entityType, int $entityId)` | جستجو بر اساس لینک بیرونی |
-| `getSystemAccount(string $key)` | دریافت حساب سیستمی |
-| `search(array $filters)` | جستجوی ساده |
+| `findByCode(string $code, ?int $branchId = null)` | جستجو با کد |
+| `findByCodeOrFail(string $code, ?int $branchId = null)` | جستجو با خطا |
+| `findByCodeForBranch(string $code, ?int $branchId)` | اولویت حساب شعبه، سپس حساب مشترک |
+| `findByCodeForBranchOrFail(...)` | همان با exception |
+| `findByEntity(string $entityType, int $entityId)` | لینک polymorphic |
+| `getSystemAccount(string $key, ?int $branchId = null)` | حساب سیستمی |
+| `search(array $filters)` | فیلترهای واقعی: `query`, `type`, `level`, `is_active`, `branch_id` |
 
-## `DocumentService`
-
-### متدهای اصلی
-
-| متد | شرح |
-|-----|-----|
-| `create(array $data)` | ایجاد سند و ردیف‌ها |
-| `post(Document|int $document)` | ثبت قطعی |
-| `getNextNumber(?FiscalYear $fiscalYear = null, ?int $branchId = null)` | شماره بعدی |
-| `isBalanced(Document $document)` | بررسی تعادل |
-
-### نکات
-
-- `create()` شماره سند را تخصیص می‌دهد.
-- `create()` و `post()` هر دو از `PostingService` برای کنترل سال مالی، دوره مالی و تاریخ عبور می‌کنند.
-- `idempotency_key` در سطح دیتابیس unique است.
-
-## `BalanceService`
-
-| متد | شرح |
-|-----|-----|
-| `getBalance()` | مانده حساب |
-| `calculateRealtime()` | مانده realtime |
-| `getBalanceAsOf()` | مانده تا تاریخ |
-| `getDebitTotal()` | جمع بدهکار |
-| `getCreditTotal()` | جمع بستانکار |
-| `getTurnover()` | گردش بازه |
-| `refreshCache()` | بازسازی کش |
-
-## `ReportService`
-
-| متد | خروجی | شرح |
-|-----|--------|-----|
-| `trialBalance(?FiscalYear $fiscalYear = null)` | `array` | متد قدیمی deprecated |
-| `trialBalanceDetailed(LedgerQuery|FiscalYear|null $criteria = null)` | `TrialBalanceReport` | تراز آزمایشی واقعی |
-| `generalLedger(LedgerQuery $query)` | `GeneralLedgerReport` | دفتر کل |
-| `accountStatement(LedgerQuery $query)` | `AccountLedger` | دفتر یک حساب |
-
-## `FiscalYearService`
-
-| متد | شرح |
-|-----|-----|
-| `current()` | سال مالی جاری |
-| `findByDate(string $date)` | یافتن سال بر اساس تاریخ |
-| `create(array $data)` | ایجاد draft |
-| `update(FiscalYear|int $fiscalYear, array $data)` | ویرایش؛ از ۱۳.۵.۰: `start_date` فقط در `draft` بدون سند، `end_date` در `draft`/`active` تا `>= latestDocumentDate()` |
-| `activate(FiscalYear|int $fiscalYear)` | فعال‌سازی؛ با `allow_multiple_active` چند سال می‌توانند هم‌زمان active باشند و این سال `is_current` می‌شود |
-| `setCurrent(FiscalYear|int $fiscalYear)` | تعیین سال پیش‌فرض UI (`is_current`) بدون بستن بقیه |
-| `findPriorConsecutive(FiscalYear|int $fiscalYear)` | سال متوالی قبلی (`end_date = start_date - 1 روز`) یا `null` |
-| `validateCanClose(FiscalYear|int $fiscalYear)` | پیش‌بررسی بستن |
-| `close(FiscalYear|int $fiscalYear)` | بستن سال؛ اگر `is_current` بود، active باقی‌مانده promote می‌شود |
-| `completeOpening(FiscalYear|int $fiscalYear)` | تکمیل فلگ افتتاحیه (با گیت سال قبلی در صورت کانفیگ) |
-| `revertOpening(FiscalYear|int $fiscalYear)` | برگشت فلگ افتتاحیه |
-| `assertPriorYearClosedForOpening(FiscalYear $fiscalYear)` | گیت قطعی‌سازی افتتاحیه نسبت به سال قبل |
-| `assertAcceptsPosting(FiscalYear $fiscalYear, string $date)` | primitive داخلی ثبت |
-| `assertNoOverlap(string $startDate, string $endDate, ?int $exceptId = null)` | کنترل هم‌پوشانی |
-| `latestDocumentDate(FiscalYear $fiscalYear)` | `?string` — آخرین `documents.date` (هر وضعیتی) این سال، یا `null` |
-| `minAllowedEndDate(FiscalYear $fiscalYear)` | `string` — کمترین `end_date` قابل قبول (`max(start_date, latestDocumentDate())`) |
-
-## `AccountingPeriodService`
-
-| متد | شرح |
-|-----|-----|
-| `create(array $data)` | ایجاد دوره `draft` |
-| `update(AccountingPeriod\|int $period, array $data)` | ویرایش نام/بازه (نه وضعیت) |
-| `open(AccountingPeriod\|int $period)` | `draft` → `open` |
-| `close(AccountingPeriod\|int $period)` | `open` → `closed` (بدون تغییر ژورنال) |
-| `resolve(FiscalYear\|int $fy, $date)` | دوره یکتای شامل تاریخ، یا `null` |
-| `resolveOrFail(...)` | مانند `resolve` با exception |
-| `assertAllowsPosting(FiscalYear\|int $fy, $date, bool $lock = true)` | gate دامنه؛ `lockForUpdate` وقتی `$lock` |
-| `allowsPosting(...)` | boolean بدون throw |
-| `ensureFullYearOpen(FiscalYear\|int $fy)` | اگر دوره‌ای نباشد، یک دوره باز تمام‌ساله |
-| `closeOpenPeriodsForFiscalYear(FiscalYear\|int $fy)` | بستن همه دوره‌های باز سال |
-
-## `PostingService`
-
-| متد | شرح |
-|-----|-----|
-| `assertAllowed(string\|\DateTimeInterface $date, FiscalYear\|int\|null $fiscalYear = null, ?string $type = null, ?int $branchId = null, bool $lockPeriod = true): AccountingPeriod` | gate عمومی ثبت (FY + period)؛ دورهٔ باز را برمی‌گرداند |
-| `isAllowed(...)` | boolean بدون throw |
-| `resolvePeriod(FiscalYear\|int $fy, $date)` | معادل `Accounting::period()->resolve()` |
-
-`type` و `branchId` در signature هستند، اما در تصمیم‌گیری امروز نقشی ندارند.
-## `OpeningService`
-
-از ۱۳.۵.۰ افتتاحیه دو مرحله‌ای است: `saveDraft()` پیش‌نویس می‌سازد؛ `confirm()` آن را قطعی می‌کند.
-از ۱۳.۸.۰ رفتار با کانفیگ `accounting.opening.*` کنترل می‌شود (اجازه بعد از عملیات، الزام بسته بودن سال قبل، carry موقت). جزئیات فارسی: [17-multi-active-years-and-opening.md](17-multi-active-years-and-opening.md).
-
-| متد | شرح |
-|-----|-----|
-| `isComplete(FiscalYear|int $fiscalYear)` | وضعیت `opening_done` |
-| `saveDraft(FiscalYear|int $target, array $items, ?int $branchId = null)` | ایجاد/جای‌گزینی افتتاحیهٔ `draft` این باکت (سال مالی + شعبه)؛ ممکن است نامتوازن باشد |
-| `confirm(FiscalYear|int $target, ?int $branchId = null)` | ثبت قطعی افتتاحیهٔ `draft` همان باکت (نیازمند تعادل) |
-| `find(FiscalYear|int $target, ?int $branchId = null)` | افتتاحیهٔ `draft` یا `posted` این باکت، یا `null` |
-| `post(FiscalYear|int $target, array $items, ?int $branchId = null)` | یک‌مرحله‌ای (سازگاری قدیم) — معادل `saveDraft()` + `confirm()` |
-| `carryForward(FiscalYear|int $source, FiscalYear|int $target)` | draft از سال `closed` (نهایی) یا از سال `active` (موقت، اگر کانفیگ اجازه دهد) |
-
-## `ClosingService`
-
-| متد | شرح |
-|-----|-----|
-| `isProfitAndLossClosed(FiscalYear|int $fiscalYear)` | بررسی صفر شدن موقت‌ها |
-| `closeProfitAndLoss(FiscalYear|int $fiscalYear)` | ثبت سند اختتامیه سود و زیان |
-
-## `ReversalService`
-
-| متد | شرح |
-|-----|-----|
-| `reverse(Document|int $document, array $options = [])` | برگشت کامل سند |
-| `idempotencyKey(Document $original)` | کلید deterministic برگشت |
-
-## مدل‌ها
-
-### `Document`
-
-متدهای مهم:
-
-- `post()`
-- `reverse(?string $reason = null)`
-- `markAsPosted(?int $postedBy = null)`
-- `void(string $reason = '')`
-- `isBalanced()`
-- `isPosted()`
-- `isEditable()`
-- `isVoidable()`
-
-### `FiscalYear`
-
-متدهای مهم:
-
-- `current()`
-- `findByDate($date)`
-- `activate()`
-- `close()`
-- `completeOpening()`
-- `revertOpening()`
-
-### `Account`
-
-متدهای مهم:
-
-- `balance(?FiscalYear $fiscalYear = null)`
-- `isPostable()`
-- `assertPostable()`
-- `canDelete()`
-- `refreshBalance()`
-
-**create**
-
-```php
-public function create(array $data): Account
-```
-
-| پارامتر | نوع | الزامی | شرح |
-|---------|-----|--------|-----|
-| parent_id | int | ❌ | شناسه والد |
-| parent_code | string | ❌ | کد والد (جایگزین parent_id) |
-| code | string | ❌ | کد حساب (خودکار تولید می‌شود) |
-| title | string | ✅ | عنوان حساب |
-| description | string | ❌ | توضیحات |
-| type | string | ✅ | نوع (asset, liability, equity, income, expense) |
-| nature | string | ❌ | ماهیت (debit, credit) |
-| is_active | bool | ❌ | وضعیت فعال (پیش‌فرض: true) |
-| entity_type | string | ❌ | نوع موجودیت |
-| entity_id | int | ❌ | شناسه موجودیت |
-| meta | array | ❌ | اطلاعات اضافی |
-
-مثال:
+`update()`, `delete()`, `getTree()`, `validateCode()` روی این سرویس **وجود ندارند**.
 
 ```php
 $account = Accounting::account()->create([
@@ -265,1000 +87,182 @@ $account = Accounting::account()->create([
 ]);
 ```
 
-**update**
+## `DocumentService`
 
-```php
-public function update(Account|int $account, array $data): Account
-```
+| متد | شرح |
+|-----|-----|
+| `create(array $data)` | ایجاد سند و ردیف‌ها |
+| `post(Document\|int $document)` | ثبت قطعی |
+| `getNextNumber(?FiscalYear $fiscalYear = null, ?int $branchId = null)` | شماره بعدی |
+| `isBalanced(Document $document)` | تعادل اعشاری دقیق |
 
-مثال:
+`update()`, `delete()`, `submit()`, `approve()`, `reject()`, `void()`, `find()`, `search()` روی این سرویس **نیستند**. ابطال روی `Document::void()` است.
 
-```php
-$account = Accounting::account()->update($account, [
-    'title' => 'عنوان جدید',
-    'is_active' => false,
-]);
-```
+## `BalanceService`
 
-**delete**
+| متد | شرح |
+|-----|-----|
+| `getBalance()` | مانده حساب |
+| `calculateRealtime()` | مانده realtime |
+| `getBalanceAsOf()` | مانده تا تاریخ |
+| `getDebitTotal()` | جمع بدهکار |
+| `getCreditTotal()` | جمع بستانکار |
+| `getTurnover()` | گردش بازه؛ آرگومان چهارم اختیاری `{fiscal_year, branch_id}` |
+| `refreshCache()` | بازسازی کش |
+| `updateAfterDocument(Document $document)` | به‌روزرسانی کش بعد از ثبت (observer) |
+| `reverseDocument(Document $document)` | برگرداندن دلتای کش بعد از ابطال (observer) |
 
-```php
-public function delete(Account|int $account): bool
-```
+`refreshAllCaches()`, `hasNormalBalance()`, `getBalanceWarning()` وجود ندارند.
 
-مثال:
+## `ReportService`
 
-```php
-Accounting::account()->delete($account);
-```
+| متد | خروجی |
+|-----|--------|
+| `trialBalance(?FiscalYear $fiscalYear = null)` | `array` — deprecated |
+| `trialBalanceDetailed(LedgerQuery\|FiscalYear\|null $criteria = null)` | `TrialBalanceReport` |
+| `profitAndLoss(LedgerQuery\|FiscalYear\|null $criteria = null)` | `ProfitAndLossReport` |
+| `balanceSheet(LedgerQuery\|FiscalYear\|null $criteria = null)` | `BalanceSheetReport` |
+| `cashMovements(LedgerQuery\|FiscalYear\|null $criteria = null)` | `CashMovementReport` |
+| `generalLedger(LedgerQuery $query)` | `GeneralLedgerReport` |
+| `accountStatement(LedgerQuery $query)` | `AccountLedger` |
+| `accountStatementPaginated(LedgerQuery $query, int $page = 1, ?int $perPage = null)` | `PaginatedAccountStatement` |
+| `costCenterStatementPaginated(LedgerQuery $query, int $page = 1, ?int $perPage = null)` | `PaginatedCostCenterStatement` |
+| `generalLedgerSummary(LedgerQuery $query, int $page = 1, ?int $perPage = null)` | `PaginatedGeneralLedgerSummary` |
 
-⚠️ حساب‌های سیستمی و حساب‌های دارای تراکنش قابل حذف نیستند.
+`incomeStatement()`, `costCenterReport()`, `branchReport()` **وجود ندارند**. سود و زیان همان `profitAndLoss()` است. فیلتر شعبه/مرکز هزینه/بازه از `LedgerQuery` می‌آید، نه از آرگومان نام‌دار روی `trialBalance()`.
 
-### ۳.۳ متدهای جستجو
+مرجع دفتر: [09-reports.md](09-reports.md). صورت‌های مالی: [20-financial-statements.md](20-financial-statements.md).
 
-**find**
+## `LedgerQuery`
 
-```php
-public function find(int $id): ?Account
-public function findOrFail(int $id): Account
-public function findByCode(string $code): ?Account
-public function findByCodeOrFail(string $code): Account
-```
+| متد | شرح |
+|-----|-----|
+| `forAccount()` / `forAccounts()` | محدود به حساب |
+| `forFiscalYear()` | محدود به سال مالی |
+| `forAccountingPeriod(AccountingPeriod $period)` | FY + `[start, end]` دوره |
+| `from()` / `to()` | بازه تاریخ |
+| `branch()` | فیلتر `documents.branch_id`؛ `null` یعنی بدون شعبه |
+| `costCenter()` | فیلتر `document_items.cost_center_id` |
+| `excludeDocumentTypes()` | حذف نوع سند از دوره و افتتاحیه |
+| `get()` / `cursor()` / `pageLines()` / `countLines()` / `prefixSignedSum()` | خواندن خطوط |
+| `openingBalances()` / `periodTotals()` / `periodTotalsByAccount()` / `trialBalanceAggregates()` | تجمیع |
 
-مثال:
+همیشه posted-only است.
 
-```php
-$account = Accounting::account()->findByCode('110101');
-```
+## `FiscalYearService`
 
-**findByEntity**
+| متد | شرح |
+|-----|-----|
+| `current()` | سال جاری UI (`active` + `is_current`، وگرنه اولین `active`) |
+| `findByDate(string $date)` | سال شامل تاریخ (حتی draft/closed) |
+| `create(array $data)` | ایجاد draft |
+| `update(...)` | `start_date` فقط در draft بدون سند؛ `end_date` در draft/active تا `>= latestDocumentDate()` |
+| `activate(...)` | فعال‌سازی؛ با `allow_multiple_active` چند سال می‌توانند `active` بمانند |
+| `setCurrent(...)` | فقط `is_current` |
+| `findPriorConsecutive(...)` | سال متوالی قبلی |
+| `validateCanClose()` / `close()` | بستن سال (بدون ژورنال)؛ دوره‌های باز را می‌بندد؛ اگر `is_current` بود سال active باقی‌مانده promote می‌شود |
+| `completeOpening()` / `revertOpening()` | فلگ `opening_done` |
+| `assertPriorYearClosedForOpening()` | گیت سال قبل |
+| `assertAcceptsPosting()` / `assertNoOverlap()` | کنترل ثبت و هم‌پوشانی |
+| `latestDocumentDate()` / `minAllowedEndDate()` | کف `end_date` |
 
-```php
-public function findByEntity(string $entityType, int $entityId): ?Account
-```
+## `AccountingPeriodService`
 
-مثال:
+| متد | شرح |
+|-----|-----|
+| `create()` / `update()` | ایجاد/ویرایش دوره draft |
+| `open()` / `close()` | `draft → open` و `open → closed` (بدون ژورنال) |
+| `resolve()` / `resolveOrFail()` | دوره یکتای شامل تاریخ |
+| `assertAllowsPosting()` / `allowsPosting()` | gate ثبت |
+| `ensureFullYearOpen()` | دوره باز تمام‌ساله اگر هیچ دوره‌ای نباشد |
+| `closeOpenPeriodsForFiscalYear()` | بستن دوره‌های باز سال |
+| `validateCanClose()` / `hasPeriods()` / `assertNoOverlap()` / `resolveForUpdate()` | کنترل‌های کمکی |
 
-```php
-$account = Accounting::account()->findByEntity('user', 1);
-```
+دورهٔ `closed` بازگشایی نمی‌شود.
 
-**search**
+## `PostingService`
 
-```php
-public function search(array $filters): Collection
-```
+| متد | شرح |
+|-----|-----|
+| `assertAllowed(...)` | gate FY + period؛ دورهٔ `open` را برمی‌گرداند |
+| `isAllowed(...)` | boolean |
+| `resolvePeriod(...)` | معادل `Accounting::period()->resolve()` |
 
-| فیلتر | نوع | شرح |
-|-------|-----|-----|
-| query | string | جستجو در عنوان و کد |
-| type | string | نوع حساب |
-| nature | string | ماهیت حساب |
-| level | int | سطح حساب |
-| parent_id | int | شناسه والد |
-| is_active | bool | وضعیت فعال |
-| entity_type | string | نوع موجودیت |
-| has_balance | bool | دارای مانده |
+`type` و `branchId` در signature هستند، اما در تصمیم ثبت امروز استفاده نمی‌شوند.
 
-مثال:
+## `OpeningService`
 
-```php
-$accounts = Accounting::account()->search([
-    'type' => 'asset',
-    'level' => 3,
-    'is_active' => true,
-    'query' => 'بانک',
-]);
-```
+جزئیات کانفیگ: [17-multi-active-years-and-opening.md](17-multi-active-years-and-opening.md).
 
-### ۳.۴ متدهای درخت
+| متد | شرح |
+|-----|-----|
+| `isComplete()` | فلگ `opening_done` |
+| `saveDraft()` | draft باکت (سال + شعبه)؛ می‌تواند نامتوازن باشد |
+| `confirm()` | ثبت همان draft؛ تعادل اجباری است |
+| `find()` | draft یا posted همان باکت |
+| `post()` | `saveDraft()` + `confirm()` |
+| `carryForward()` | draft از سال `closed` یا (با کانفیگ) از سال `active` موقت |
 
-**getTree**
+## `ClosingService`
 
-```php
-public function getTree(?int $parentId = null, int $maxLevel = 3): Collection
-```
+| متد | شرح |
+|-----|-----|
+| `isProfitAndLossClosed()` | صفر بودن مانده حساب‌های موقت |
+| `closeProfitAndLoss()` | سند `type=closing` به `retained_earnings` |
 
-مثال:
+سال مالی را `closed` نمی‌کند.
 
-```php
-$tree = Accounting::account()->getTree();
-$assetTree = Accounting::account()->getTree(1);  // فقط زیرمجموعه دارایی
-```
+## `ReversalService`
 
-**getChildren**
+| متد | شرح |
+|-----|-----|
+| `reverse(Document\|int $document, array $options = [])` | سند معکوس همان FY |
+| `idempotencyKey(Document $original)` | `reversal:{id}` |
 
-```php
-public function getChildren(Account|int $account): Collection
-```
+گزینهٔ معتبر: `reason`, `date`. `fiscal_year_id` و `branch_id` از اصل کپی می‌شوند و از options قابل override نیستند.
 
-**getParent**
+## مدل‌ها — متدهای واقعی
 
-```php
-public function getParent(Account|int $account): ?Account
-```
+### `Document`
 
-**getAncestors**
+`post()`, `reverse(?string $reason = null)`, `markAsPosted()`, `void(string $reason = '')`, `isBalanced()`, `isPosted()`, `isEditable()`, `isVoidable()`, `postedReversal()`, روابط `items`, `logs`, `fiscalYear`, `accountingPeriod`, `reversedDocument`, `reversals`, `source`, `createdBy`. Scopeها: `posted()`, `draft()`. Attributeها: `debit_total`, `credit_total`.
 
-```php
-public function getAncestors(Account|int $account): Collection
-```
+### `FiscalYear`
 
-**getDescendants**
+`current()`, `findByDate()`, `activate()`, `close()`, `completeOpening()`, `revertOpening()`, `setCurrent()`, `isActive()`, `isClosed()`, `containsDate()`, روابط `documents`, `accountingPeriods`. Accessorها: `status_label`, `latest_document_date`, `min_allowed_end_date`.
 
-```php
-public function getDescendants(Account|int $account): Collection
-```
+### `Account`
 
-### ۳.۵ متدهای کمکی
+`balance()`, `isPostable()`, `assertPostable()`, `canDelete()`, `refreshBalance()`, روابط `parent`, `children`, `items`, `entity`, `branch`. Scopeها: `active()`, `ofType()`, `ofLevel()`. Attribute: `natural_balance`.
 
-**generateCode**
+### `AccountingPeriod`
 
-```php
-public function generateCode(Account|int|string $parent): string
-```
+`open()`, `close()`, `isDraft()`, `isOpen()`, `isClosed()`, `containsDate()`, روابط `fiscalYear`, `documents`.
 
-مثال:
+### `CostCenter`
 
-```php
-$newCode = Accounting::account()->generateCode('1102');
-// نتیجه: '110203' (کد بعدی در سطح تفصیلی)
-```
+رابطه واقعی: `documentItems()` — نه `items()`.
 
-**validateCode**
+## رویدادها
 
-```php
-public function validateCode(string $code): bool
-```
+- `DocumentCreated`, `DocumentPosted`, `DocumentVoided`
+- `AccountingPeriodOpened`, `AccountingPeriodClosed`, `PostingRejectedForClosedPeriod`
 
-**getSystemAccount**
+## استثناهای موجود
 
-```php
-public function getSystemAccount(string $key): Account
-```
+`UnbalancedDocumentException`, `ClosedFiscalYearException`, `FiscalYearStateException`, `InvalidFiscalYearException`, `FiscalYearOverlapException`, `InactiveAccountException`, `InvalidPostingAccountException`, `InvalidAccountHierarchyException`, `DuplicateIdempotencyKeyException`, `AccountNotFoundException`, `DocumentNotEditableException`, `DocumentNotReversibleException`, `SystemAccountException`, `ClosedAccountingPeriodException`, `AccountingPeriodStateException`, `AccountingPeriodOverlapException`, `InvalidAccountingPeriodException`.
 
-مثال:
+`InvalidDocumentStatusException` و `InsufficientBalanceException` **وجود ندارند**.
 
-```php
-$cashAccount = Accounting::account()->getSystemAccount('cash');
-$bankAccount = Accounting::account()->getSystemAccount('bank');
-```
+## آنچه در این پکیج API نیست
+
+- صورت سود و زیان / ترازنامه / جریان وجه نقد
+- workflow تأیید (`submit` / `approve`) به‌عنوان سرویس
+- هلپر سراسری `accounting_*`
+- `AccountService::update/delete/getTree`
+- `DocumentService::void`
+- Macroable بودن سرویس‌ها
 
 ---
 
-## ۴. DocumentService
-
-### ۴.۱ دسترسی
-
-```php
-$documentService = app(DocumentService::class);
-```
-
-### ۴.۲ متدهای CRUD
-
-**create**
-
-```php
-public function create(array $data): Document
-```
-
-| پارامتر | نوع | الزامی | شرح |
-|---------|-----|--------|-----|
-| fiscal_year_id | int | ❌ | شناسه سال مالی (خودکار) |
-| branch_id | int | ❌ | شناسه شعبه |
-| date | string/Carbon | ✅ | تاریخ سند |
-| type | string | ✅ | نوع سند |
-| description | string | ❌ | توضیحات |
-| notes | string | ❌ | یادداشت |
-| reference | string | ❌ | شماره مرجع |
-| source_type | string | ❌ | نوع منبع |
-| source_id | int | ❌ | شناسه منبع |
-| items | array | ✅ | آیتم‌های سند |
-| meta | array | ❌ | اطلاعات اضافی |
-
-ساختار items:
-
-```php
-'items' => [
-    [
-        'account_id' => 1,
-        'amount' => 1000000,
-        'sign' => 1,  // 1 = بدهکار، -1 = بستانکار
-        'description' => 'توضیح ردیف',
-        'cost_center_id' => null,
-        'meta' => [],
-    ],
-    // ...
-]
-```
-
-مثال:
-
-```php
-$document = $documentService->create([
-    'date' => '2024-03-15',
-    'type' => 'sale',
-    'description' => 'فروش کالا',
-    'items' => [
-        ['account_id' => 10, 'amount' => 1000000, 'sign' => 1],
-        ['account_id' => 20, 'amount' => 1000000, 'sign' => -1],
-    ],
-]);
-```
-
-**update**
-
-```php
-public function update(Document|int $document, array $data): Document
-```
-
-⚠️ فقط اسناد پیش‌نویس قابل ویرایش هستند.
-
-**delete**
-
-```php
-public function delete(Document|int $document): bool
-```
-
-⚠️ فقط اسناد پیش‌نویس قابل حذف هستند.
-
-### ۴.۳ متدهای تغییر وضعیت
-
-**submit**
-
-```php
-public function submit(Document|int $document): Document
-```
-
-تغییر از draft به pending.
-
-**approve**
-
-```php
-public function approve(Document|int $document): Document
-```
-
-تغییر از pending به approved.
-
-**reject**
-
-```php
-public function reject(Document|int $document, string $reason = ''): Document
-```
-
-برگشت از pending به draft.
-
-**post**
-
-```php
-public function post(Document|int $document): Document
-```
-
-ثبت قطعی سند (تغییر به posted).
-
-**void**
-
-```php
-public function void(Document|int $document, string $reason = ''): Document
-```
-
-ابطال سند ثبت شده.
-
-### ۴.۴ متدهای جستجو
-
-**find**
-
-```php
-public function find(int $id): ?Document
-public function findOrFail(int $id): Document
-public function findByNumber(int $number, ?FiscalYear $fiscalYear = null): ?Document
-```
-
-**search**
-
-```php
-public function search(array $filters): LengthAwarePaginator
-```
-
-| فیلتر | نوع | شرح |
-|-------|-----|-----|
-| fiscal_year_id | int | سال مالی |
-| branch_id | int | شعبه |
-| type | string/array | نوع سند |
-| status | string/array | وضعیت |
-| date_from | string | از تاریخ |
-| date_to | string | تا تاریخ |
-| number_from | int | از شماره |
-| number_to | int | تا شماره |
-| reference | string | شماره مرجع |
-| account_id | int | حساب مرتبط |
-| min_amount | float | حداقل مبلغ |
-| max_amount | float | حداکثر مبلغ |
-| created_by | int | ایجادکننده |
-
-مثال:
-
-```php
-$documents = $documentService->search([
-    'type' => 'sale',
-    'status' => 'posted',
-    'date_from' => '2024-01-01',
-    'date_to' => '2024-03-31',
-]);
-```
-
-### ۴.۵ متدهای کمکی
-
-**getNextNumber**
-
-```php
-public function getNextNumber(?FiscalYear $fiscalYear = null): int
-```
-
-**validate**
-
-```php
-public function validate(array $data): array
-```
-
-اعتبارسنجی داده‌ها و برگرداندن خطاها.
-
-**isBalanced**
-
-```php
-public function isBalanced(Document|array $document): bool
-```
-
-بررسی بالانس بودن سند.
-
-**getTotal**
-
-```php
-public function getTotal(Document $document): array
-```
-
-خروجی:
-
-```php
-[
-    'debit' => 1000000,
-    'credit' => 1000000,
-    'balance' => 0,
-]
-```
-
----
-
-## ۵. BalanceService
-
-### ۵.۱ دسترسی
-
-```php
-$balanceService = app(BalanceService::class);
-```
-
-### ۵.۲ متدهای محاسبه
-
-**getBalance**
-
-```php
-public function getBalance(
-    Account|int $account, 
-    ?FiscalYear $fiscalYear = null,
-    bool $forceRealtime = false
-): float
-```
-
-مثال:
-
-```php
-$balance = $balanceService->getBalance($account);
-$balance = $balanceService->getBalance($account, $fiscalYear);
-$balance = $balanceService->getBalance($account, null, true);  // بدون cache
-```
-
-**getBalanceAsOf**
-
-```php
-public function getBalanceAsOf(
-    Account|int $account, 
-    Carbon|string $date,
-    ?FiscalYear $fiscalYear = null
-): float
-```
-
-مثال:
-
-```php
-$balance = $balanceService->getBalanceAsOf($account, '2024-03-31');
-```
-
-**getDebitTotal**
-
-```php
-public function getDebitTotal(
-    Account|int $account, 
-    ?FiscalYear $fiscalYear = null
-): float
-```
-
-**getCreditTotal**
-
-```php
-public function getCreditTotal(
-    Account|int $account, 
-    ?FiscalYear $fiscalYear = null
-): float
-```
-
-**getTurnover**
-
-```php
-public function getTurnover(
-    Account|int $account,
-    Carbon|string $fromDate,
-    Carbon|string $toDate
-): array
-```
-
-خروجی:
-
-```php
-[
-    'debit' => 5000000,
-    'credit' => 3000000,
-    'balance' => 2000000,
-]
-```
-
-### ۵.۳ متدهای Cache
-
-**refreshCache**
-
-```php
-public function refreshCache(Account|int $account): float
-```
-
-بروزرسانی cache مانده یک حساب.
-
-**refreshAllCaches**
-
-```php
-public function refreshAllCaches(?FiscalYear $fiscalYear = null): void
-```
-
-بروزرسانی cache تمام حساب‌ها.
-
-**invalidateCache**
-
-```php
-public function invalidateCache(Account|int $account): void
-```
-
-نامعتبر کردن cache یک حساب.
-
-### ۵.۴ متدهای بررسی
-
-**hasNormalBalance**
-
-```php
-public function hasNormalBalance(Account|int $account): bool
-```
-
-بررسی اینکه مانده در جهت طبیعی حساب است.
-
-**getBalanceWarning**
-
-```php
-public function getBalanceWarning(Account|int $account): ?string
-```
-
-دریافت هشدار مانده غیرطبیعی (در صورت وجود).
-
----
-
-## ۶. ReportService
-
-### ۶.۱ دسترسی
-
-```php
-$reportService = Accounting::report();
-// یا
-$reportService = app(ReportService::class);
-```
-
-### ۶.۲ تراز آزمایشی
-
-**trialBalance**
-
-```php
-public function trialBalance(
-    ?FiscalYear $fiscalYear = null,
-    ?Carbon $asOfDate = null,
-    ?int $branchId = null
-): Collection
-```
-
-خروجی (هر ردیف):
-
-```php
-[
-    'account_id' => 1,
-    'code' => '110101',
-    'title' => 'صندوق',
-    'level' => 3,
-    'debit' => 5000000,
-    'credit' => 3000000,
-    'balance' => 2000000,
-    'balance_debit' => 2000000,
-    'balance_credit' => 0,
-]
-```
-
-مثال:
-
-```php
-$trialBalance = Accounting::report()->trialBalance();
-$trialBalance = Accounting::report()->trialBalance($fiscalYear, Carbon::parse('2024-03-31'));
-```
-
-### ۶.۳ دفتر کل
-
-**generalLedger**
-
-```php
-public function generalLedger(
-    Account|int $account,
-    ?FiscalYear $fiscalYear = null,
-    ?Carbon $fromDate = null,
-    ?Carbon $toDate = null
-): array
-```
-
-خروجی:
-
-```php
-[
-    'account' => ['id' => 1, 'code' => '110101', 'title' => 'صندوق'],
-    'period' => ['from' => '2024-01-01', 'to' => '2024-03-31'],
-    'opening_balance' => 1000000,
-    'transactions' => [
-        [
-            'date' => '2024-01-15',
-            'document_number' => 5,
-            'description' => 'دریافت از مشتری',
-            'debit' => 500000,
-            'credit' => 0,
-            'balance' => 1500000,
-        ],
-        // ...
-    ],
-    'closing_balance' => 2500000,
-    'totals' => [
-        'debit' => 2000000,
-        'credit' => 500000,
-    ],
-]
-```
-
-### ۶.۴ گردش حساب
-
-**accountStatement**
-
-```php
-public function accountStatement(
-    Account|int $account,
-    ?Carbon $fromDate = null,
-    ?Carbon $toDate = null
-): array
-```
-
-مشابه دفتر کل اما بدون محدودیت سال مالی.
-
-### ۶.۵ ترازنامه
-
-**balanceSheet**
-
-```php
-public function balanceSheet(
-    ?FiscalYear $fiscalYear = null,
-    ?Carbon $asOfDate = null,
-    ?int $branchId = null
-): array
-```
-
-خروجی:
-
-```php
-[
-    'as_of_date' => '2024-03-31',
-    'assets' => [
-        'current' => [...],
-        'non_current' => [...],
-        'total' => 50000000,
-    ],
-    'liabilities' => [
-        'current' => [...],
-        'non_current' => [...],
-        'total' => 20000000,
-    ],
-    'equity' => [
-        'items' => [...],
-        'total' => 30000000,
-    ],
-    'totals' => [
-        'assets' => 50000000,
-        'liabilities_and_equity' => 50000000,
-        'is_balanced' => true,
-    ],
-]
-```
-
-### ۶.۶ صورت سود و زیان
-
-**incomeStatement**
-
-```php
-public function incomeStatement(
-    ?FiscalYear $fiscalYear = null,
-    ?Carbon $fromDate = null,
-    ?Carbon $toDate = null,
-    ?int $branchId = null
-): array
-```
-
-خروجی:
-
-```php
-[
-    'period' => ['from' => '2024-01-01', 'to' => '2024-03-31'],
-    'income' => [
-        'operating' => [...],
-        'non_operating' => [...],
-        'total' => 10000000,
-    ],
-    'expenses' => [
-        'operating' => [...],
-        'non_operating' => [...],
-        'total' => 7000000,
-    ],
-    'net_profit' => 3000000,
-    'profit_margin' => 30.0,
-]
-```
-
-### ۶.۷ گزارش مرکز هزینه
-
-**costCenterReport**
-
-```php
-public function costCenterReport(
-    CostCenter|int $costCenter,
-    ?FiscalYear $fiscalYear = null,
-    ?Carbon $fromDate = null,
-    ?Carbon $toDate = null
-): array
-```
-
-### ۶.۸ گزارش شعبه
-
-**branchReport**
-
-```php
-public function branchReport(
-    Branch|int $branch,
-    ?FiscalYear $fiscalYear = null
-): array
-```
-
----
-
-## ۷. FiscalYearService
-
-Canonical lifecycle API (13.3.0). See [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md).
-
-### ۷.۱ دسترسی
-
-```php
-$fiscalYearService = Accounting::fiscalYear();
-// یا
-$fiscalYearService = app(FiscalYearService::class);
-```
-
-### ۷.۲ پیکربندی
-
-**create** — always `draft`. Does not accept `status` / `is_current` / `opening_done`.
-
-```php
-public function create(array $data): FiscalYear
-```
-
-| پارامتر | نوع | الزامی | شرح |
-|---------|-----|--------|-----|
-| title | string | ✅ | عنوان |
-| start_date | string/Carbon | ✅ | تاریخ شروع |
-| end_date | string/Carbon | ✅ | تاریخ پایان |
-
-**update** — draft: title+dates; active: title only; closed: rejected.
-
-```php
-public function update(FiscalYear|int $fiscalYear, array $data): FiscalYear
-```
-
-### ۷.۳ وضعیت
-
-```php
-public function activate(FiscalYear|int $fiscalYear): FiscalYear
-public function validateCanClose(FiscalYear|int $fiscalYear): void
-public function close(FiscalYear|int $fiscalYear): FiscalYear
-public function assertAcceptsPosting(FiscalYear $fiscalYear, string $date): void
-```
-
-- `activate()` does not create opening entries (`opening_done` stays false).
-- `close()` does not create closing entries or the next fiscal year.
-- There is **no** `reopen()`, `createOpening()`, or `createClosing()` in this version.
-
-### ۷.۴ جستجو
-
-```php
-public function current(): ?FiscalYear          // active current only
-public function findByDate(string $date): ?FiscalYear  // unique containing year; overlap → exception
-public function assertNoOverlap(string $startDate, string $endDate, ?int $exceptId = null): void
-```
-
----
-
-## ۸. Model های اصلی
-
-### ۸.۱ Account
-
-**روابط:**
-
-| متد | نوع | مرتبط با |
-|-----|-----|----------|
-| `parent()` | BelongsTo | Account |
-| `children()` | HasMany | Account |
-| `branch()` | BelongsTo | Branch |
-| `items()` | HasMany | DocumentItem |
-| `documents()` | HasManyThrough | Document |
-| `entity()` | MorphTo | - |
-
-**Scope ها:**
-
-```php
-Account::active()->get();                    // فقط فعال
-Account::ofType('asset')->get();             // نوع خاص
-Account::ofLevel(3)->get();                  // سطح خاص
-Account::ofBranch($branch)->get();           // شعبه خاص
-Account::systemAccounts()->get();            // حساب‌های سیستمی
-Account::postable()->get();                  // قابل ثبت سند
-Account::withBalance()->get();               // با مانده غیرصفر
-```
-
-**متدها:**
-
-```php
-$account->balance();                          // مانده
-$account->balanceAsOf($date);                 // مانده تا تاریخ
-$account->turnover($from, $to);               // گردش
-$account->hasNormalBalance();                 // بررسی مانده طبیعی
-$account->getFullCode();                      // کد کامل با والدین
-$account->getFullTitle();                     // عنوان کامل با والدین
-$account->getPath();                          // مسیر از ریشه
-$account->isLeaf();                           // آیا برگ است؟
-$account->isRoot();                           // آیا ریشه است؟
-$account->isAncestorOf($other);               // آیا جد است؟
-$account->isDescendantOf($other);             // آیا فرزند است؟
-```
-
-### ۸.۲ Document
-
-**روابط:**
-
-| متد | نوع | مرتبط با |
-|-----|-----|----------|
-| `fiscalYear()` | BelongsTo | FiscalYear |
-| `branch()` | BelongsTo | Branch |
-| `items()` | HasMany | DocumentItem |
-| `logs()` | HasMany | DocumentLog |
-| `createdBy()` | BelongsTo | User |
-| `approvedBy()` | BelongsTo | User |
-| `postedBy()` | BelongsTo | User |
-| `source()` | MorphTo | - |
-
-**Scope ها:**
-
-```php
-Document::posted()->get();                    // فقط ثبت شده
-Document::draft()->get();                     // فقط پیش‌نویس
-Document::ofType('sale')->get();              // نوع خاص
-Document::ofFiscalYear($year)->get();         // سال مالی خاص
-Document::ofBranch($branch)->get();           // شعبه خاص
-Document::inDateRange($from, $to)->get();     // بازه تاریخی
-Document::today()->get();                     // امروز
-Document::thisMonth()->get();                 // این ماه
-```
-
-**متدها:**
-
-```php
-$document->post();                            // ثبت قطعی
-$document->void($reason);                     // ابطال (سند از دفتر posted خارج می‌شود)
-$document->reverse($reason);                  // برگشت عملیاتی — سند جدید type=reversal؛ اصل دست‌نخورده می‌ماند
-$document->reversedDocument();                // سندی که این سند برگشت زده
-$document->reversals();                       // اسناد برگشت این سند
-$document->postedReversal();                  // برگشت posted جاری یا null
-$document->isPosted();                        // آیا ثبت شده؟
-$document->isEditable();                      // آیا قابل ویرایش؟
-$document->isDeletable();                     // آیا قابل حذف؟
-$document->isBalanced();                      // آیا بالانس؟
-$document->getTotal();                        // جمع بدهکار و بستانکار
-$document->getDebitTotal();                   // جمع بدهکار
-$document->getCreditTotal();                  // جمع بستانکار
-$document->getAffectedAccounts();             // حساب‌های تأثیرپذیر
-$document->duplicate();                       // کپی سند
-```
-
-### ۸.۳ DocumentItem
-
-**روابط:**
-
-| متد | نوع | مرتبط با |
-|-----|-----|----------|
-| `document()` | BelongsTo | Document |
-| `account()` | BelongsTo | Account |
-| `costCenter()` | BelongsTo | CostCenter |
-
-**Accessor ها:**
-
-```php
-$item->debit;                                 // مبلغ بدهکار
-$item->credit;                                // مبلغ بستانکار
-$item->signed_amount;                         // مبلغ علامت‌دار
-$item->is_debit;                              // آیا بدهکار؟
-$item->is_credit;                             // آیا بستانکار؟
-```
-
-### ۸.۴ FiscalYear
-
-**روابط:**
-
-| متد | نوع | مرتبط با |
-|-----|-----|----------|
-| `documents()` | HasMany | Document |
-
-**Scope ها:**
-
-```php
-FiscalYear::active()->get();                  // فعال
-FiscalYear::closed()->get();                  // بسته
-FiscalYear::current()->first();               // جاری
-```
-
-**متدها:**
-
-```php
-$fiscalYear->isActive();                      // آیا فعال؟
-$fiscalYear->isClosed();                      // آیا بسته؟
-$fiscalYear->containsDate($date);             // آیا تاریخ شامل است؟
-$fiscalYear->getDaysRemaining();              // روزهای باقی‌مانده
-$fiscalYear->getProgress();                   // درصد پیشرفت
-$fiscalYear->documentsCount();                // تعداد اسناد
-$fiscalYear->activate();                      // فعال کردن
-$fiscalYear->close();                         // بستن
-```
-
-### ۸.۵ Branch
-
-**روابط:**
-
-| متد | نوع | مرتبط با |
-|-----|-----|----------|
-| `accounts()` | HasMany | Account |
-| `documents()` | HasMany | Document |
-
-**Scope ها:**
-
-```php
-Branch::active()->get();
-Branch::default()->first();
-```
-
-### ۸.۶ CostCenter
-
-**روابط:**
-
-| متد | نوع | مرتبط با |
-|-----|-----|----------|
-| `items()` | HasMany | DocumentItem |
-
-**Scope ها:**
-
-```php
-CostCenter::active()->get();
-```
-
----
-
-## ۹. Exception ها
-
-### ۹.۱ لیست Exception ها
-
-| Exception | علت |
-|-----------|-----|
-| `UnbalancedDocumentException` | سند بالانس نیست |
-| `ClosedFiscalYearException` | سال مالی بسته است |
-| `InactiveAccountException` | حساب غیرفعال است |
-| `InvalidDocumentStatusException` | تغییر وضعیت نامعتبر |
-| `AccountNotFoundException` | حساب یافت نشد |
-| `SystemAccountException` | عملیات غیرمجاز روی حساب سیستمی |
-| `DocumentNotEditableException` | سند قابل ویرایش نیست |
-| `InsufficientBalanceException` | موجودی کافی نیست |
-
-### ۹.۲ مدیریت خطا
-
-```php
-use YourVendor\Accounting\Exceptions\UnbalancedDocumentException;
-use YourVendor\Accounting\Exceptions\ClosedFiscalYearException;
-
-try {
-    Accounting::document()
-        ->type('sale')
-        ->debit($account1, 1000)
-        ->credit($account2, 900)  // نامتوازن!
-        ->post();
-} catch (UnbalancedDocumentException $e) {
-    // مدیریت خطای عدم توازن
-    return back()->withError('سند بالانس نیست');
-} catch (ClosedFiscalYearException $e) {
-    // مدیریت خطای سال مالی بسته
-    return back()->withError('سال مالی بسته است');
-}
-```
-
----
-
-## ۱۰. Helper ها
-
-### ۱۰.۱ توابع کمکی
-
-```php
-// دسترسی به Facade
-accounting()->document()->...
-
-// فرمت مبلغ
-accounting_format(1000000);  // 1,000,000
-
-// پارس مبلغ
-accounting_parse('1,000,000');  // 1000000
-
-// سال مالی جاری
-current_fiscal_year();
-
-// شعبه جاری
-current_branch();
-
-// حساب سیستمی
-system_account('cash');
-```
-
----
-
-## ReversalService
-
-```php
-Accounting::reversal()->reverse($document, [
-    'reason' => 'duplicate posting',
-    'date' => '2025-06-01', // optional; must stay in the original FY
-]);
-```
-
-Same-FY operational full-document reversal. Original stays posted. Closed-FY correction is not implemented. Opening/closing documents are refused.
-
----
-
-[→ ادامه: گزارش‌ها (09-reports.md)](09-reports.md)
-
-[← بازگشت: یکپارچه‌سازی (07-integration.md)](07-integration.md)
-
-[⌂ فهرست (00-index.md)](00-index.md)
+[⌂ فهرست](00-index.md) · [usage.md](usage.md) · [09-reports.md](09-reports.md)

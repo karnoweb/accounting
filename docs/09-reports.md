@@ -11,12 +11,17 @@
 ## گزارش‌های موجود
 
 1. `trialBalanceDetailed`
-2. `generalLedger`
-3. `accountStatement`
-4. `accountStatementPaginated`
-5. `generalLedgerSummary`
-6. `costCenterStatementPaginated`
-7. `BalanceService::getTurnover`
+2. `profitAndLoss`
+3. `balanceSheet`
+4. `cashMovements`
+5. `generalLedger`
+6. `accountStatement`
+7. `accountStatementPaginated`
+8. `generalLedgerSummary`
+9. `costCenterStatementPaginated`
+10. `BalanceService::getTurnover`
+
+صورت‌های مالی: [20-financial-statements.md](20-financial-statements.md).
 
 ## پایه مشترک گزارش‌ها: `LedgerQuery`
 
@@ -27,10 +32,12 @@
 - `forAccount()`
 - `forAccounts()`
 - `forFiscalYear()`
+- `forAccountingPeriod()` — پنجره را به `start_date`/`end_date` دوره محدود می‌کند و FY را از همان دوره می‌گیرد
 - `from()`
 - `to()`
 - `branch()`
 - `costCenter()`
+- `excludeDocumentTypes()` — حذف نوع سند posted از دوره و افتتاحیه (سود و زیان برای نادیده گرفتن `closing` از آن استفاده می‌کند)
 
 ### رفتارهای ثابت
 
@@ -270,11 +277,20 @@ Default اندازه صفحه: `config('accounting.reports.per_page', 50)`.
 
 برای توسعه جدید از `trialBalanceDetailed()` استفاده کنید.
 
+## صورت‌های مالی
+
+از ۱۳.۱۰.۰ روی همان `LedgerQuery` / تراز آزمایشی:
+
+- `profitAndLoss()` — جریان درآمد/هزینه؛ اسناد `closing` کنار گذاشته می‌شوند
+- `balanceSheet()` — موجودی در `as_of`؛ سود جاری قبل از بستن جداگانه می‌آید
+- `cashMovements()` — شالوده ورود/خروج حساب‌های نقد پیکربندی‌شده، نه صورت O/I/F
+
+جزئیات، معادلهٔ ترازنامه، و محدودیت جریان نقد: [20-financial-statements.md](20-financial-statements.md).
+
 ## آنچه در گزارش‌های هسته‌ای فعلاً نیست
 
 - counterpart resolution برای اسناد چندردیفی
-- صورت سود و زیان نهایی
-- ترازنامه
-- صورت جریان وجه نقد
+- صورت جریان وجه نقد کامل (عملیاتی / سرمایه‌گذاری / تأمین مالی)
+- مقایسهٔ خودکار دورهٔ قبل / واریانس
 - UI یا export سطح رابط کاربری
 - cursor/keyset pagination (فعلاً offset + prefix sum)

@@ -16,6 +16,7 @@ use Karnoweb\Accounting\Models\Document;
 use Karnoweb\Accounting\Models\DocumentItem;
 use Karnoweb\Accounting\Models\FiscalYear;
 use Karnoweb\Accounting\Reporting\LedgerQuery;
+use Karnoweb\Accounting\Support\Amount;
 
 /**
  * Opening journals: draft → confirm (or one-shot post()), and carryForward() from a
@@ -39,8 +40,6 @@ use Karnoweb\Accounting\Reporting\LedgerQuery;
  */
 class OpeningService
 {
-    private const TOLERANCE = 0.01;
-
     public function __construct(
         private DocumentService $documentService,
         private FiscalYearService $fiscalYearService,
@@ -64,7 +63,7 @@ class OpeningService
      * - If a draft already exists for this bucket, its items are replaced in place
      *   (same document id, same idempotency key) and returned.
      *
-     * @param  list<array{account_id: int, amount: float, sign: int, description?: ?string}>  $items
+     * @param  list<array{account_id: int, amount: int|float|string, sign: int, description?: ?string}>  $items
      */
     public function saveDraft(FiscalYear|int $target, array $items, ?int $branchId = null): Document
     {
@@ -198,7 +197,7 @@ class OpeningService
      * Idempotent replay is preserved: if a posted opening already matches this bucket,
      * it is returned unchanged (no new document, no re-validation of items).
      *
-     * @param  list<array{account_id: int, amount: float, sign: int, description?: ?string}>  $items
+     * @param  list<array{account_id: int, amount: int|float|string, sign: int, description?: ?string}>  $items
      */
     public function post(FiscalYear|int $target, array $items, ?int $branchId = null): Document
     {
@@ -300,7 +299,7 @@ class OpeningService
     }
 
     /**
-     * @param  array{branch_id: ?int, items: list<array{account_id: int, amount: float, sign: int}>}  $plan
+     * @param  array{branch_id: ?int, items: list<array{account_id: int, amount: string, sign: int}>}  $plan
      */
     private function carryForwardBucket(
         FiscalYear $source,
@@ -384,7 +383,7 @@ class OpeningService
      * Replace a draft document's items in place (delete + recreate). Only ever called
      * on a `status=draft` document — DocumentItem's own guards refuse this on posted/voided rows.
      *
-     * @param  list<array{account_id: int, amount: float, sign: int, description?: ?string}>  $items
+     * @param  list<array{account_id: int, amount: int|float|string, sign: int, description?: ?string}>  $items
      */
     private function replaceItems(Document $document, array $items): void
     {
@@ -394,7 +393,7 @@ class OpeningService
             DocumentItem::create([
                 'document_id' => $document->id,
                 'account_id' => $item['account_id'],
-                'amount' => $item['amount'],
+                'amount' => Amount::of($item['amount'])->toStorage(),
                 'sign' => $item['sign'],
                 'description' => $item['description'] ?? null,
                 'order' => $index,
@@ -466,7 +465,7 @@ class OpeningService
     }
 
     /**
-     * @return list<array{branch_id: ?int, items: list<array{account_id: int, amount: float, sign: int}>}>
+     * @return list<array{branch_id: ?int, items: list<array{account_id: int, amount: string, sign: int}>}>
      */
     private function plansFromSource(FiscalYear $source): array
     {
@@ -485,7 +484,7 @@ class OpeningService
     }
 
     /**
-     * @return array{branch_id: ?int, items: list<array{account_id: int, amount: float, sign: int}>}
+     * @return array{branch_id: ?int, items: list<array{account_id: int, amount: string, sign: int}>}
      */
     private function planForBranch(FiscalYear $source, ?int $branchId): array
     {
@@ -500,11 +499,11 @@ class OpeningService
             : Account::query()->whereIn('id', $accountIds)->get()->keyBy('id');
 
         $items = [];
-        $residual = 0.0;
+        $residual = Amount::zero();
 
         foreach ($totals as $accountId => $row) {
-            $signed = round((float) $row['debit'] - (float) $row['credit'], 2);
-            if (abs($signed) < self::TOLERANCE) {
+            $signed = Amount::signedBalance($row['debit'], $row['credit']);
+            if ($signed->isZero()) {
                 continue;
             }
 
@@ -517,7 +516,7 @@ class OpeningService
             }
 
             if ($account->type->isTemporary()) {
-                $residual += $signed;
+                $residual = $residual->add($signed);
 
                 continue;
             }
@@ -533,24 +532,24 @@ class OpeningService
 
             $items[] = [
                 'account_id' => $account->id,
-                'amount' => abs($signed),
-                'sign' => $signed > 0 ? 1 : -1,
+                'amount' => $signed->abs()->toStorage(),
+                'sign' => $signed->isPositive() ? 1 : -1,
             ];
         }
 
-        if (abs($residual) >= self::TOLERANCE) {
+        if ( ! $residual->isZero()) {
             throw new FiscalYearStateException(
                 $source,
                 __('accounting::accounting.messages.opening_pnl_residual')
             );
         }
 
-        $net = 0.0;
-        foreach ($items as $item) {
-            $net += $item['amount'] * $item['sign'];
-        }
+        $net = Amount::sum(array_map(
+            fn (array $item) => Amount::of($item['amount'])->signed($item['sign']),
+            $items
+        ));
 
-        if (abs($net) >= self::TOLERANCE) {
+        if ( ! $net->isZero()) {
             throw new FiscalYearStateException(
                 $source,
                 __('accounting::accounting.messages.opening_pnl_residual')
@@ -564,7 +563,7 @@ class OpeningService
     }
 
     /**
-     * @param  list<array{account_id: int, amount: float, sign: int}>  $expected
+     * @param  list<array{account_id: int, amount: int|float|string, sign: int}>  $expected
      */
     private function itemsMatch(array $expected, Document $document): bool
     {
@@ -575,7 +574,7 @@ class OpeningService
         $actual = $document->items
             ->map(fn ($item) => [
                 'account_id' => (int) $item->account_id,
-                'amount' => round((float) $item->amount, 2),
+                'amount' => Amount::of($item->amount)->toStorage(),
                 'sign' => (int) $item->sign,
             ])
             ->sortBy(fn (array $row) => $row['account_id'].':'.$row['sign'])
@@ -584,7 +583,7 @@ class OpeningService
         $wanted = collect($expected)
             ->map(fn (array $item) => [
                 'account_id' => (int) $item['account_id'],
-                'amount' => round((float) $item['amount'], 2),
+                'amount' => Amount::of($item['amount'])->toStorage(),
                 'sign' => (int) $item['sign'],
             ])
             ->sortBy(fn (array $row) => $row['account_id'].':'.$row['sign'])
@@ -595,7 +594,7 @@ class OpeningService
             if ($row === null
                 || $row['account_id'] !== $item['account_id']
                 || $row['sign'] !== $item['sign']
-                || abs($row['amount'] - $item['amount']) >= self::TOLERANCE
+                || ! Amount::of($row['amount'])->equals($item['amount'])
             ) {
                 return false;
             }
@@ -605,21 +604,21 @@ class OpeningService
     }
 
     /**
-     * @param  list<array{account_id: int, amount: float, sign: int, description?: ?string}>  $items
-     * @return list<array{account_id: int, amount: float, sign: int, description: ?string}>
+     * @param  list<array{account_id: int, amount: int|float|string, sign: int, description?: ?string}>  $items
+     * @return list<array{account_id: int, amount: string, sign: int, description: ?string}>
      */
     private function normalizeItems(array $items): array
     {
         $normalized = [];
 
         foreach ($items as $item) {
-            $amount = round((float) ($item['amount'] ?? 0), 2);
+            $amount = Amount::of($item['amount'] ?? 0);
 
-            if (abs($amount) < self::TOLERANCE) {
+            if ($amount->isZero()) {
                 continue;
             }
 
-            if ($amount <= 0) {
+            if ( ! $amount->isPositive()) {
                 throw new InvalidArgumentException(__('accounting::accounting.validation.amount_positive'));
             }
 
@@ -634,7 +633,7 @@ class OpeningService
 
             $normalized[] = [
                 'account_id' => $account->id,
-                'amount' => $amount,
+                'amount' => $amount->toStorage(),
                 'sign' => (int) ($item['sign'] ?? 1),
                 'description' => $item['description'] ?? null,
             ];

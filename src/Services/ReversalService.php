@@ -12,6 +12,7 @@ use Karnoweb\Accounting\Exceptions\DuplicateIdempotencyKeyException;
 use Karnoweb\Accounting\Exceptions\FiscalYearStateException;
 use Karnoweb\Accounting\Models\Document;
 use Karnoweb\Accounting\Models\FiscalYear;
+use Karnoweb\Accounting\Support\Amount;
 
 /**
  * Same-FY full-document operational reversal.
@@ -162,7 +163,7 @@ class ReversalService
     }
 
     /**
-     * @return list<array{account_id: int, amount: float, sign: int, cost_center_id: ?int, description: ?string, order: int, meta: array<string, mixed>}>
+     * @return list<array{account_id: int, amount: string, sign: int, cost_center_id: ?int, description: ?string, order: int, meta: array<string, mixed>}>
      */
     private function invertedItems(Document $original): array
     {
@@ -175,7 +176,7 @@ class ReversalService
 
                 return [
                     'account_id' => (int) $item->account_id,
-                    'amount' => (float) $item->amount,
+                    'amount' => Amount::of($item->amount)->toStorage(),
                     'sign' => -((int) $item->sign),
                     'cost_center_id' => $item->cost_center_id !== null ? (int) $item->cost_center_id : null,
                     'description' => $item->description,

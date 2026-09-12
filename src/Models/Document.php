@@ -16,12 +16,19 @@ use Karnoweb\Accounting\Events\DocumentCreated;
 use Karnoweb\Accounting\Exceptions\DocumentNotEditableException;
 use Karnoweb\Accounting\Services\DocumentService;
 use Karnoweb\Accounting\Services\ReversalService;
+use Karnoweb\Accounting\Support\Amount;
 
 class Document extends BaseModel
 {
     use SoftDeletes;
 
     public array $_oldValues = [];
+
+    /**
+     * Set only by markAsPosted() so draft/pending/approved cannot become posted
+     * through a raw Eloquent update.
+     */
+    public bool $allowCanonicalPost = false;
 
     protected $table = 'documents';
 
@@ -30,6 +37,7 @@ class Document extends BaseModel
         'accounting_period_id',
         'branch_id',
         'number',
+        'numbering_bucket',
         'reference',
         'date',
         'type',
@@ -67,13 +75,39 @@ class Document extends BaseModel
 
     protected static function booted(): void
     {
+        static::creating(function (Document $document) {
+            $status = self::normalizeStatus($document->status);
+            if (in_array($status, [DocumentStatus::POSTED, DocumentStatus::VOIDED], true)) {
+                throw new DocumentNotEditableException(
+                    $document,
+                    __('accounting::accounting.messages.document_cannot_create_terminal_status')
+                );
+            }
+        });
+
         static::updating(function (Document $document) {
             $document->_oldValues = $document->getOriginal();
 
             $originalStatus = self::normalizeStatus($document->getOriginal('status'));
+            $newStatus = self::normalizeStatus($document->status);
+
+            if ($originalStatus !== DocumentStatus::POSTED && $newStatus === DocumentStatus::POSTED) {
+                if ( ! $document->allowCanonicalPost) {
+                    throw new DocumentNotEditableException(
+                        $document,
+                        __('accounting::accounting.messages.document_cannot_force_post')
+                    );
+                }
+            }
 
             if ($originalStatus === DocumentStatus::POSTED) {
-                if ($document->status !== DocumentStatus::VOIDED) {
+                if ($newStatus !== DocumentStatus::VOIDED) {
+                    throw new DocumentNotEditableException($document);
+                }
+
+                $allowedOnVoid = ['status', 'notes', 'idempotency_key', 'updated_at'];
+                $forbidden = array_diff(array_keys($document->getDirty()), $allowedOnVoid);
+                if ($forbidden !== []) {
                     throw new DocumentNotEditableException($document);
                 }
             }
@@ -172,19 +206,23 @@ class Document extends BaseModel
 
     public function getDebitTotalAttribute(): float
     {
-        return (float) $this->items->where('sign', 1)->sum('amount');
+        return Amount::sum(
+            $this->items->where('sign', 1)->map(fn ($item) => $item->amount)
+        )->toFloat();
     }
 
     public function getCreditTotalAttribute(): float
     {
-        return (float) $this->items->where('sign', -1)->sum('amount');
+        return Amount::sum(
+            $this->items->where('sign', -1)->map(fn ($item) => $item->amount)
+        )->toFloat();
     }
 
     public function isBalanced(): bool
     {
-        $balance = $this->items->sum(fn ($item) => $item->amount * $item->sign);
-
-        return abs($balance) < 0.01;
+        return Amount::sum(
+            $this->items->map(fn ($item) => Amount::of($item->amount)->signed((int) $item->sign))
+        )->isZero();
     }
 
     public function isPosted(): bool
@@ -226,11 +264,16 @@ class Document extends BaseModel
      */
     public function markAsPosted(?int $postedBy = null): self
     {
+        if ( ! $this->allowCanonicalPost) {
+            return app(DocumentService::class)->post($this);
+        }
+
         $this->update([
             'status' => DocumentStatus::POSTED,
             'posted_at' => now(),
             'posted_by' => $postedBy,
         ]);
+        $this->allowCanonicalPost = false;
 
         return $this->refresh()->load('items.account');
     }

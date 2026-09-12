@@ -124,17 +124,17 @@
 
 ### چه چیزی enforce می‌شود؟
 
-- هم‌پوشانی سال مالی
-- فقط یک سال `active`
-- ممنوع بودن ثبت در سال `closed`
-- ممنوع بودن ثبت در سال `draft`
+- هم‌پوشانی سال مالی (وقتی `allow_overlap = false`)
+- چند سال `active` فقط وقتی `allow_multiple_active = true` (پیش‌فرض)
+- ممنوع بودن ثبت در سال `closed` یا `draft`
 - تطابق تاریخ سند با بازه FY
+- ثبت فقط در دورهٔ `open` (`ClosedAccountingPeriodException`)
 
 ### چه چیزی enforce نمی‌شود؟
 
-- دوره مالی ماهانه
-- lock فصلی
-- بازگشایی سال بسته
+- lock فصلی جدا از دوره
+- بازگشایی سال بسته یا دوره بسته
+- authorization / permission کاربر (مسئولیت اپ میزبان)
 
 ## ۸. تفاوت `void` و `reversal` از نظر حفاظتی
 
@@ -166,10 +166,12 @@
 - تغییرناپذیری سند posted/voided
 - تغییرناپذیری `DocumentItem`
 - هم‌پوشانی غیردقیق سال‌های مالی
-- فقط یک FY active
+- چند FY active مطابق کانفیگ
 - قواعد افتتاحیه
 - قواعد اختتامیه
 - قواعد reversal
+
+کاتالوگ کامل قوانین دفتر: [19-accounting-invariants.md](19-accounting-invariants.md).
 
 ## ۱۱. محدودیت مهم
 

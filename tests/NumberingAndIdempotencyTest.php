@@ -137,6 +137,64 @@ class NumberingAndIdempotencyTest extends TestCase
         ]);
     }
 
+    public function test_separate_numbering_allows_same_number_in_different_branches(): void
+    {
+        config()->set('accounting.branch.separate_numbering', true);
+
+        $fy = $this->createActiveFiscalYear();
+        $chart = $this->createPostableChart();
+        $service = app(DocumentService::class);
+
+        $branchOne = $service->create([
+            'type' => 'adjustment',
+            'date' => '2025-01-10',
+            'fiscal_year_id' => $fy->id,
+            'branch_id' => 1,
+            'items' => $this->balancedItems($chart['detail'], $chart['detail2'], 1),
+        ]);
+        $branchTwo = $service->create([
+            'type' => 'adjustment',
+            'date' => '2025-01-11',
+            'fiscal_year_id' => $fy->id,
+            'branch_id' => 2,
+            'items' => $this->balancedItems($chart['detail'], $chart['detail2'], 1),
+        ]);
+
+        $this->assertSame(1, (int) $branchOne->number);
+        $this->assertSame(1, (int) $branchTwo->number);
+        $this->assertSame(1, (int) $branchOne->numbering_bucket);
+        $this->assertSame(2, (int) $branchTwo->numbering_bucket);
+    }
+
+    public function test_shared_numbering_stays_unique_across_branches(): void
+    {
+        config()->set('accounting.branch.separate_numbering', false);
+
+        $fy = $this->createActiveFiscalYear();
+        $chart = $this->createPostableChart();
+        $service = app(DocumentService::class);
+
+        $first = $service->create([
+            'type' => 'adjustment',
+            'date' => '2025-01-10',
+            'fiscal_year_id' => $fy->id,
+            'branch_id' => 1,
+            'items' => $this->balancedItems($chart['detail'], $chart['detail2'], 1),
+        ]);
+        $second = $service->create([
+            'type' => 'adjustment',
+            'date' => '2025-01-11',
+            'fiscal_year_id' => $fy->id,
+            'branch_id' => 2,
+            'items' => $this->balancedItems($chart['detail'], $chart['detail2'], 1),
+        ]);
+
+        $this->assertSame(1, (int) $first->number);
+        $this->assertSame(2, (int) $second->number);
+        $this->assertSame(0, (int) $first->numbering_bucket);
+        $this->assertSame(0, (int) $second->numbering_bucket);
+    }
+
     public function test_same_source_can_create_multiple_documents_without_idempotency_key(): void
     {
         $fy = $this->createActiveFiscalYear();

@@ -10,6 +10,8 @@
 
 پکیج حسابداری **جدول شعبه ایجاد نمی‌کند**. در جداول `accounts` و `documents` فقط فیلد **`branch_id`** (nullable) وجود دارد. شعبه پیش‌فرض از `config('accounting.branch.default_id')` و در صورت نیاز از **resolver** تأمین می‌شود. اگر در اپلیکیشن جدول/مدل Branch دارید، می‌توانید در config به آن اشاره کنید تا رابطهٔ `branch()` روی Document و Account کار کند.
 
+این **چندشعبه** است، نه چندشرکتی / multi-tenant. پکیج isolation شرکت یا tenant جداگانه ندارد؛ همهٔ سال‌های مالی و حساب‌ها در یک schema مشترک‌اند. `branch_id` یک بُعد اختیاری روی سند و حساب است.
+
 ---
 
 ## ۱. مفهوم شعبه در پکیج
@@ -158,11 +160,18 @@ $accessibleAccounts = Account::where(function ($q) use ($branchId) {
 ## ۶. گزارش‌گیری با branch_id
 
 ```php
-$trialBalance = Accounting::report()->trialBalance(branchId: 2);
-$allBranches   = Accounting::report()->trialBalance(branchId: null);
+use Karnoweb\Accounting\Reporting\LedgerQuery;
+
+$branchTwo = Accounting::report()->trialBalanceDetailed(
+    LedgerQuery::make()->branch(2)
+);
+$unbranched = Accounting::report()->trialBalanceDetailed(
+    LedgerQuery::make()->branch(null) // فقط اسناد بدون شعبه
+);
+$allBranches = Accounting::report()->trialBalanceDetailed($fiscalYear); // بدون فراخوانی branch()
 ```
 
-سایر متدهای گزارش در صورت پشتیبانی، پارامتر `branchId` را به همین شکل می‌پذیرند.
+`trialBalance()` / `trialBalanceDetailed()` آرگومان نام‌دار `branchId` ندارند. فیلتر شعبه فقط از طریق `LedgerQuery::branch()` است. جزئیات: [09-reports.md](09-reports.md).
 
 ---
 

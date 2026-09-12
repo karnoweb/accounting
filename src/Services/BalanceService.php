@@ -12,6 +12,7 @@ use Karnoweb\Accounting\Models\Document;
 use Karnoweb\Accounting\Models\DocumentItem;
 use Karnoweb\Accounting\Models\FiscalYear;
 use Karnoweb\Accounting\Reporting\LedgerQuery;
+use Karnoweb\Accounting\Support\Amount;
 
 /**
  * Service for account balances: current balance, balance as-of date, debit/credit totals, turnover, and cache refresh.
@@ -36,11 +37,11 @@ class BalanceService
             $key = $this->fiscalYearCacheKey($account, $fiscalYear);
             $ttl = (int) config('accounting.balance.cache_ttl', 3600);
 
-            return (float) Cache::remember($key, $ttl, fn () => $this->calculateRealtime($account, $fiscalYear));
+            return Amount::of(Cache::remember($key, $ttl, fn () => $this->calculateRealtime($account, $fiscalYear)))->toFloat();
         }
 
         if ( ! $forceRealtime && $this->isLifetimeCacheValid($account)) {
-            return (float) $account->cached_balance;
+            return Amount::of($account->cached_balance ?? 0)->toFloat();
         }
 
         return $this->calculateRealtime($account, null);
@@ -60,7 +61,7 @@ class BalanceService
                 }
             });
 
-        return (float) $query->selectRaw('COALESCE(SUM(amount * sign), 0) as balance')->value('balance');
+        return Amount::of($query->selectRaw('COALESCE(SUM(amount * sign), 0) as balance')->value('balance') ?? 0)->toFloat();
     }
 
     /** Get account balance as of a given date (posted items with date <= date). Never uses lifetime cache. */
@@ -76,11 +77,11 @@ class BalanceService
         $key = $this->asOfCacheKey($account, $date, $fiscalYear);
         $ttl = (int) config('accounting.balance.cache_ttl', 3600);
 
-        return (float) Cache::remember(
+        return Amount::of(Cache::remember(
             $key,
             $ttl,
             fn () => $this->calculateBalanceAsOf($account, $date, $fiscalYear)
-        );
+        ))->toFloat();
     }
 
     /** Sum of debit amounts (sign = 1) for the account in the fiscal year. */
@@ -98,7 +99,7 @@ class BalanceService
                 }
             });
 
-        return (float) $query->sum('amount');
+        return Amount::of($query->sum('amount') ?? 0)->toFloat();
     }
 
     /** Sum of credit amounts (sign = -1) for the account in the fiscal year. */
@@ -116,7 +117,7 @@ class BalanceService
                 }
             });
 
-        return (float) $query->sum('amount');
+        return Amount::of($query->sum('amount') ?? 0)->toFloat();
     }
 
     /**
@@ -183,19 +184,21 @@ class BalanceService
                 continue;
             }
 
-            $delta = $document->items
-                ->where('account_id', $accountId)
-                ->sum(fn ($item) => $item->amount * $item->sign);
+            $delta = Amount::sum(
+                $document->items
+                    ->where('account_id', $accountId)
+                    ->map(fn ($item) => Amount::of($item->amount)->signed((int) $item->sign))
+            );
 
             Account::where('id', $accountId)->update([
-                'cached_balance' => DB::raw("cached_balance + {$delta}"),
+                'cached_balance' => DB::raw('cached_balance + ('.$delta->toStorage().')'),
                 'balance_updated_at' => now(),
             ]);
 
             $this->forgetAccountCaches($account, $document->fiscalYear);
 
             if (config('accounting.balance.update_parents', true)) {
-                $this->updateParentChain($account, (float) $delta, $document->fiscalYear);
+                $this->updateParentChain($account, $delta, $document->fiscalYear);
             }
         }
     }
@@ -212,19 +215,21 @@ class BalanceService
                 continue;
             }
 
-            $delta = $document->items
-                ->where('account_id', $accountId)
-                ->sum(fn ($item) => $item->amount * $item->sign);
+            $delta = Amount::sum(
+                $document->items
+                    ->where('account_id', $accountId)
+                    ->map(fn ($item) => Amount::of($item->amount)->signed((int) $item->sign))
+            );
 
             Account::where('id', $accountId)->update([
-                'cached_balance' => DB::raw("cached_balance - {$delta}"),
+                'cached_balance' => DB::raw('cached_balance - ('.$delta->toStorage().')'),
                 'balance_updated_at' => now(),
             ]);
 
             $this->forgetAccountCaches($account, $document->fiscalYear);
 
             if (config('accounting.balance.update_parents', true)) {
-                $this->updateParentChain($account, -(float) $delta, $document->fiscalYear);
+                $this->updateParentChain($account, $delta->negate(), $document->fiscalYear);
             }
         }
     }
@@ -241,16 +246,16 @@ class BalanceService
                 }
             });
 
-        return (float) $query->selectRaw('COALESCE(SUM(amount * sign), 0) as balance')->value('balance');
+        return Amount::of($query->selectRaw('COALESCE(SUM(amount * sign), 0) as balance')->value('balance') ?? 0)->toFloat();
     }
 
-    private function updateParentChain(Account $account, float $delta, ?FiscalYear $fiscalYear = null): void
+    private function updateParentChain(Account $account, Amount $delta, ?FiscalYear $fiscalYear = null): void
     {
         $parent = $account->parent;
 
         while ($parent) {
             Account::where('id', $parent->id)->update([
-                'cached_balance' => DB::raw("cached_balance + {$delta}"),
+                'cached_balance' => DB::raw('cached_balance + ('.$delta->toStorage().')'),
                 'balance_updated_at' => now(),
             ]);
 

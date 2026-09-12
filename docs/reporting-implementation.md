@@ -1,4 +1,8 @@
-# Reporting Implementation Audit & Design — v13.2.0
+# Reporting Implementation Audit & Design — archived 13.2.0 note
+
+> **این فایل منبع حقیقت گزارش‌های فعلی نیست.** یادداشت طراحی قبل از پیاده‌سازی ۱۳.۲.۰ است.
+> فهرست گزارش‌ها، فیلترها و صفحه‌بندی جاری: [09-reports.md](09-reports.md).
+> API: [08-api-reference.md](08-api-reference.md).
 
 Phase 0 deliverable for the **Accounting Reporting Foundation**. Written before any
 reporting code was changed. Package: `karnoweb/laravel-accounting`, standalone
@@ -19,7 +23,7 @@ Behavior:
 - Defaults to `FiscalYear::current()`; returns `[]` if there is no active FY.
 - Enumerates **posting-level** (`AccountHierarchy::postingLevel()`), **active** accounts via `AccountService::search()`.
 - Reads each account's balance via `BalanceService::getBalance($account, $fiscalYear)` — this itself is journal-derived when a fiscal year is given (see §2), not `cached_balance`.
-- Drops rows with `abs(balance) < 0.01`.
+- Drops rows whose signed balance is exactly zero (`Amount::isZero()`).
 - Returns `[['account' => Account, 'debit' => float, 'credit' => float], ...]`, splitting a signed balance into debit/credit columns.
 
 **This is not a real Trial Balance**: no opening/period split, no L0–L2 rollup, no ending debit/credit columns, zero-balance accounts are silently hidden, and it only covers a single fiscal year (no arbitrary date range, no branch filter). It does not reconcile against the accounting identities required by a proper TB.
@@ -102,7 +106,7 @@ New namespace `Karnoweb\Accounting\Reporting`:
 
 `Karnoweb\Accounting\Enums\AccountNature`:
 
-- `naturalAmount(float $debit, float $credit): float` — nature-aware signed movement (credit increases income/liability/equity, debit increases asset/expense). No `abs()` involved.
+- `naturalAmount(int|float|string $debit, int|float|string $credit): float` — nature-aware signed movement via `Amount` (credit increases income/liability/equity, debit increases asset/expense). No `abs()` of a signed balance.
 
 New migration `2024_01_01_000009_add_reporting_indexes.php` (see §14).
 

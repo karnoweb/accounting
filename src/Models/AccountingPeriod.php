@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Karnoweb\Accounting\Enums\AccountingPeriodStatus;
+use Karnoweb\Accounting\Exceptions\AccountingPeriodStateException;
 use Karnoweb\Accounting\Services\AccountingPeriodService;
 
 class AccountingPeriod extends BaseModel
@@ -38,6 +39,23 @@ class AccountingPeriod extends BaseModel
             'opened_at' => 'datetime',
             'closed_at' => 'datetime',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::updating(function (AccountingPeriod $period) {
+            $original = $period->getOriginal('status');
+            $wasClosed = $original instanceof AccountingPeriodStatus
+                ? $original === AccountingPeriodStatus::CLOSED
+                : (string) $original === AccountingPeriodStatus::CLOSED->value;
+
+            if ($wasClosed && $period->isDirty('status') && ! $period->isClosed()) {
+                throw new AccountingPeriodStateException(
+                    $period,
+                    __('accounting::accounting.messages.accounting_period_cannot_reopen')
+                );
+            }
+        });
     }
 
     public function fiscalYear(): BelongsTo

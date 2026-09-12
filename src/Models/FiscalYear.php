@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Karnoweb\Accounting\Enums\FiscalYearStatus;
 use Karnoweb\Accounting\Exceptions\FiscalYearOverlapException;
+use Karnoweb\Accounting\Exceptions\FiscalYearStateException;
 use Karnoweb\Accounting\Services\AccountingPeriodService;
 use Karnoweb\Accounting\Services\FiscalYearService;
 
@@ -59,6 +60,18 @@ class FiscalYear extends BaseModel
         });
 
         static::updating(function (FiscalYear $fiscalYear) {
+            $original = $fiscalYear->getOriginal('status');
+            $wasClosed = $original instanceof FiscalYearStatus
+                ? $original === FiscalYearStatus::CLOSED
+                : (string) $original === FiscalYearStatus::CLOSED->value;
+
+            if ($wasClosed && $fiscalYear->isDirty('status') && ! $fiscalYear->isClosed()) {
+                throw new FiscalYearStateException(
+                    $fiscalYear,
+                    __('accounting::accounting.messages.fiscal_year_cannot_reopen')
+                );
+            }
+
             if ($fiscalYear->isDirty(['start_date', 'end_date'])) {
                 app(FiscalYearService::class)->assertNoOverlap(
                     Carbon::parse($fiscalYear->start_date)->toDateString(),

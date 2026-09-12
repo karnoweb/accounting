@@ -8,6 +8,8 @@ return [
     'general' => [
         'prefix' => env('ACCOUNTING_TABLE_PREFIX', 'acc_'),
         'date_format' => 'Y-m-d',
+        // Storage, comparison, and presentation scale. Matches decimal(15,2)
+        // columns. Never use PHP float for accounting math — see Amount.
         'decimal_places' => 2,
     ],
 
@@ -126,5 +128,8 @@ return [
 
     'reports' => [
         'per_page' => 50,
+        // System-account keys treated as cash/bank for cashMovements().
+        // Codes come from account.system_accounts. Not inferred from titles.
+        'cash_system_keys' => ['cash', 'bank', 'gateway_clearing'],
     ],
 ];

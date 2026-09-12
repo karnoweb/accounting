@@ -6,10 +6,12 @@ namespace Karnoweb\Accounting\Services;
 
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use Karnoweb\Accounting\Models\Account;
 use Karnoweb\Accounting\Models\CostCenter;
 use Karnoweb\Accounting\Models\Document;
 use Karnoweb\Accounting\Models\FiscalYear;
+use Karnoweb\Accounting\Support\Amount;
 
 /**
  * Fluent builder for creating and posting accounting documents.
@@ -51,7 +53,7 @@ class DocumentBuilder
 
     private ?array $meta = null;
 
-    /** @var array<int, array{account_id: int, amount: float, sign: int, description: ?string, cost_center_id: ?int}> */
+    /** @var array<int, array{account_id: int, amount: string, sign: int, description: ?string, cost_center_id: ?int}> */
     private array $items = [];
 
     private ?int $lastItemCostCenterId = null;
@@ -152,7 +154,7 @@ class DocumentBuilder
     }
 
     /** Add a debit line (sign = 1). Optionally set description for this line. */
-    public function debit(Account|int $account, float $amount, ?string $description = null): self
+    public function debit(Account|int $account, int|float|string $amount, ?string $description = null): self
     {
         $this->addItem($account, $amount, 1, $description);
 
@@ -160,7 +162,7 @@ class DocumentBuilder
     }
 
     /** Add a credit line (sign = -1). Optionally set description for this line. */
-    public function credit(Account|int $account, float $amount, ?string $description = null): self
+    public function credit(Account|int $account, int|float|string $amount, ?string $description = null): self
     {
         $this->addItem($account, $amount, -1, $description);
 
@@ -192,8 +194,11 @@ class DocumentBuilder
     /** Create the document and post it in one step. Returns the posted Document. */
     public function post(): Document
     {
-        $document = $this->documentService->create($this->toArray());
-        $posted = $this->documentService->post($document);
+        $posted = DB::transaction(function () {
+            $document = $this->documentService->create($this->toArray());
+
+            return $this->documentService->post($document);
+        });
         $this->reset();
 
         return $posted;
@@ -224,13 +229,17 @@ class DocumentBuilder
         return $data;
     }
 
-    private function addItem(Account|int $account, float $amount, int $sign, ?string $description): void
+    private function addItem(Account|int $account, int|float|string $amount, int $sign, ?string $description): void
     {
         $resolved = $this->accountService->assertPostable($account);
+        $normalized = Amount::of($amount);
+        if ( ! $normalized->isPositive()) {
+            throw new \InvalidArgumentException(__('accounting::accounting.validation.amount_positive'));
+        }
 
         $this->items[] = [
             'account_id' => $resolved->id,
-            'amount' => round($amount, 2),
+            'amount' => $normalized->toStorage(),
             'sign' => $sign,
             'description' => $description,
             'cost_center_id' => $this->lastItemCostCenterId,

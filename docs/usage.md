@@ -245,13 +245,14 @@ Accounting::balance()->refreshCache($account, $fiscalYear);
 ### گزارش تراز آزمایشی (Trial Balance)
 
 ```php
-// deprecated از 13.2.0 — بدون رول‌آپ سلسله‌مراتب، بدون افتتاحیه/دورهٔ جدا
+// deprecated — بدون رول‌آپ سلسله‌مراتب، بدون افتتاحیه/دورهٔ جدا
 $rows = Accounting::report()->trialBalance();
 $rows = Accounting::report()->trialBalance($fiscalYear);
-// هر سطر: ['account' => Account, 'debit' => float, 'credit' => float]
 ```
 
-### گزارش‌های واقعی (از 13.2.0): تراز آزمایشی، دفتر کل، دفتر معین
+برای کار جدید از `trialBalanceDetailed()` استفاده کنید. فهرست فیلترها: [09-reports.md](09-reports.md).
+
+### گزارش‌های دفتر: تراز آزمایشی، دفتر کل، دفتر معین
 
 ```php
 use Karnoweb\Accounting\Reporting\LedgerQuery;
@@ -272,13 +273,19 @@ $statement = Accounting::report()->accountStatement(
 );
 ```
 
-جزئیات کامل (فیلترها، ترتیب قطعی، ساختار DTOها، اتحادهای تراز): **[docs/09-reports.md](09-reports.md)**.
+```php
+$pnl = Accounting::report()->profitAndLoss($fiscalYear);
+$bs = Accounting::report()->balanceSheet($fiscalYear);
+$cash = Accounting::report()->cashMovements($fiscalYear);
+```
+
+جزئیات دفتر: **[docs/09-reports.md](09-reports.md)**. صورت‌های مالی: **[docs/20-financial-statements.md](20-financial-statements.md)**.
 
 ---
 
 ## سال مالی و شعبه
 
-چرخهٔ سال مالی از ۱۳.۳.۰: `create` (همیشه `draft`) → `activate` → `close`. سال بسته قابل بازگشایی نیست. بستن سال سند اختتامیه نمی‌سازد.
+چرخهٔ سال مالی: `create` (همیشه `draft`) → `activate` → `close`. سال بسته قابل بازگشایی نیست. بستن سال سند اختتامیه نمی‌سازد. شرح کامل: [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md).
 
 ```php
 $fy = Accounting::fiscalYear()->create([
@@ -295,19 +302,22 @@ $fy = Accounting::currentFiscalYear(); // active + current only; never closed
 $fy = Accounting::fiscalYear()->findByDate('2025-05-01');
 
 Accounting::posting()->assertAllowed('2025-05-01', $fy, 'sale', $branchId);
+Accounting::period()->open($period); // در صورت نیاز؛ activate معمولاً یک دوره open تمام‌سال می‌سازد
 ```
 
 قوانین کوتاه:
 
-- در هر لحظه حداکثر یک سال `active` (و همان `is_current`).
-- پیش‌نویس قابل ویرایش تاریخ است؛ سال فعال فقط عنوان؛ سال بسته هیچ ویرایشی ندارد.
-- `opening_done` فقط با `completeOpening()` / `revertOpening()` عوض می‌شود؛ `activate()` آن را false می‌گذارد و `close()` مقدار موجود را حفظ می‌کند.
-- کنترل ثبت: `Accounting::posting()->assertAllowed($date, $fy, $type, $branchId)` — سال فعال + تاریخ داخل بازه. جدول دورهٔ ماهانه وجود ندارد.
+- چند سال می‌توانند هم‌زمان `active` باشند (`fiscal_year.allow_multiple_active`، پیش‌فرض `true`). `is_current` فقط اشاره‌گر UI/پیش‌فرض است، نه شرط ثبت.
+- ثبت (`create` و `post`) نیازمند سال `active` **و** دورهٔ `open` است که تاریخ سند داخل آن باشد. جدول `accounting_periods` وجود دارد.
+- پس از `close()` سال جاری، اگر سال `active` دیگری بماند، همان با جدیدترین `start_date` به‌عنوان `is_current` promote می‌شود.
+- پیش‌نویس قابل ویرایش تاریخ است؛ سال فعال فقط عنوان و در شرایطی `end_date`؛ سال بسته هیچ ویرایشی ندارد.
+- `opening_done` فقط با `completeOpening()` / `revertOpening()` / تکمیل افتتاحیه عوض می‌شود؛ `activate()` آن را false می‌گذارد و `close()` مقدار موجود را حفظ می‌کند.
 - افتتاحیه / انتقال مانده / بستن سود و زیان روی `Accounting::opening()` و `Accounting::closing()` هستند؛ `FiscalYearService::close()` سند نمی‌سازد.
+- `confirm()` افتتاحیه به‌طور پیش‌فرض بعد از اسناد عملیاتی posted هم مجاز است (`opening.allow_after_posted_activity`).
 - برگشت عملیاتی: `Accounting::reversal()->reverse($document)` — فقط همان سال فعال؛ اصلاح سال بسته پیاده‌سازی نشده است.
 - پس از close، تراز آزمایشی / دفتر کل / دفتر معین همان دفتر ثبت‌شده را برمی‌گردانند.
 
-مستند کامل: [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md).
+مستند کامل: [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md) و [17-multi-active-years-and-opening.md](17-multi-active-years-and-opening.md).
 
 ```php
 $branch = Accounting::currentBranch();
@@ -383,6 +393,9 @@ protected function getAccountTitle(): string
 - `Karnoweb\Accounting\Events\DocumentCreated` — بعد از ایجاد سند
 - `Karnoweb\Accounting\Events\DocumentPosted` — بعد از ثبت قطعی سند
 - `Karnoweb\Accounting\Events\DocumentVoided` — بعد از ابطال سند
+- `Karnoweb\Accounting\Events\AccountingPeriodOpened`
+- `Karnoweb\Accounting\Events\AccountingPeriodClosed`
+- `Karnoweb\Accounting\Events\PostingRejectedForClosedPeriod`
 
 مثال شنود:
 
@@ -413,8 +426,13 @@ Event::listen(DocumentPosted::class, function (DocumentPosted $event) {
 | `AccountNotFoundException` | حساب با کد داده‌شده یافت نشد |
 | `DocumentNotEditableException` | ویرایش/حذف سند یا خط ثبت‌شده |
 | `SystemAccountException` | عملیات ممنوع روی حساب سیستمی |
+| `ClosedAccountingPeriodException` | ثبت در دوره بسته / نبود دوره باز |
+| `AccountingPeriodStateException` | گذار نامعتبر دوره |
+| `AccountingPeriodOverlapException` | هم‌پوشانی بازه دوره |
+| `InvalidAccountingPeriodException` | دادهٔ نامعتبر دوره |
+| `DocumentNotReversibleException` | سند قابل برگشت عملیاتی نیست |
 
-با `abort()` یا `try/catch` و پیام مناسب به کاربر پاسخ دهید.
+با `abort()` یا `try/catch` و پیام مناسب به کاربر پاسخ دهید. فهرست کامل: [08-api-reference.md](08-api-reference.md).
 
 ---
 
@@ -430,6 +448,9 @@ Event::listen(DocumentPosted::class, function (DocumentPosted $event) {
 - `opening` — افتتاحیه  
 - `closing` — اختتامیه  
 - `adjustment` — تعدیل  
+- `reversal` — برگشت عملیاتی  
+
+این فهرست قراردادی است (`allowed_types` در هسته enforce سراسری ندارد).
 
 ## وضعیت سند (Document Status)
 

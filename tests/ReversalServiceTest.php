@@ -547,6 +547,8 @@ class ReversalServiceTest extends TestCase
 
     public function test_opening_service_still_refuses_after_operational_reversal(): void
     {
+        config(['accounting.opening.allow_after_posted_activity' => false]);
+
         $fy = $this->activateYear();
         $chart = $this->createPostableChart();
         $j1 = $this->postOperational($fy, $chart['detail'], $chart['detail2']);

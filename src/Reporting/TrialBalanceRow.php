@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Karnoweb\Accounting\Reporting;
 
+use Karnoweb\Accounting\Support\Amount;
+
 /**
  * One row of a real Trial Balance — any level from L0 (Group) to L3 (Detail).
  * L0-L2 rows are rollups of their L3 descendants (see HierarchyRollup), never
@@ -29,17 +31,17 @@ final class TrialBalanceRow
 
     public function openingBalance(): float
     {
-        return $this->openingDebit - $this->openingCredit;
+        return Amount::signedBalance($this->openingDebit, $this->openingCredit)->toFloat();
     }
 
     public function periodNet(): float
     {
-        return $this->periodDebit - $this->periodCredit;
+        return Amount::signedBalance($this->periodDebit, $this->periodCredit)->toFloat();
     }
 
     public function endingBalance(): float
     {
-        return $this->endingDebit - $this->endingCredit;
+        return Amount::signedBalance($this->endingDebit, $this->endingCredit)->toFloat();
     }
 
     /** @return array<string, mixed> */

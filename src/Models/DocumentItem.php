@@ -6,9 +6,11 @@ namespace Karnoweb\Accounting\Models;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Karnoweb\Accounting\Enums\DocumentStatus;
+use InvalidArgumentException;
 use Karnoweb\Accounting\Exceptions\DocumentNotEditableException;
 use Karnoweb\Accounting\Exceptions\InvalidPostingAccountException;
 use Karnoweb\Accounting\Services\AccountService;
+use Karnoweb\Accounting\Support\Amount;
 
 class DocumentItem extends BaseModel
 {
@@ -78,8 +80,11 @@ class DocumentItem extends BaseModel
         });
 
         static::saving(function (DocumentItem $item) {
-            $item->debit = $item->sign === 1 ? $item->amount : 0;
-            $item->credit = $item->sign === -1 ? $item->amount : 0;
+            $item->assertLineSemantics();
+            $amount = Amount::of($item->amount ?? 0);
+            $item->amount = $amount->toStorage();
+            $item->debit = $item->sign === 1 ? $amount->toStorage() : Amount::zero()->toStorage();
+            $item->credit = $item->sign === -1 ? $amount->toStorage() : Amount::zero()->toStorage();
         });
     }
 
@@ -100,7 +105,7 @@ class DocumentItem extends BaseModel
 
     public function getSignedAmountAttribute(): float
     {
-        return (float) ($this->amount * $this->sign);
+        return Amount::of($this->amount)->signed((int) $this->sign)->toFloat();
     }
 
     private function isDocumentPostedOrVoided(): bool
@@ -122,6 +127,19 @@ class DocumentItem extends BaseModel
 
         if ($document && in_array($document->status, [DocumentStatus::POSTED, DocumentStatus::VOIDED], true)) {
             throw new DocumentNotEditableException($document);
+        }
+    }
+
+    private function assertLineSemantics(): void
+    {
+        $sign = (int) $this->sign;
+        if ($sign !== 1 && $sign !== -1) {
+            throw new InvalidArgumentException(__('accounting::accounting.validation.sign_invalid'));
+        }
+
+        $amount = Amount::of($this->amount ?? 0);
+        if ( ! $amount->isPositive()) {
+            throw new InvalidArgumentException(__('accounting::accounting.validation.amount_positive'));
         }
     }
 

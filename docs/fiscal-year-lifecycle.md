@@ -1,6 +1,6 @@
 # Fiscal Year Lifecycle
 
-Package version: **13.8.0**
+Package version: see `composer.json` / `Accounting::version()`.
 
 This document describes the fiscal-year lifecycle implemented by `FiscalYearService`.
 It matches the code. Features listed under [Not implemented](#not-implemented) are intentionally absent.
@@ -119,7 +119,7 @@ the draft→confirm opening flow described below — the seeded FY is never rena
 
 Draft and closed years are never returned as current.
 
-After `close()`, current is `null` until another year is activated. Close does **not** auto-create or auto-activate the next year.
+After `close()` of the current year, `promoteLatestActiveAsCurrent()` points `is_current` at the remaining `active` year with the latest `start_date` (then `id`). Current is `null` only if no `active` year remains. Close does **not** auto-create or auto-activate a new year.
 
 ---
 
@@ -162,7 +162,7 @@ Historical and future dates inside an **active** year are allowed. There is no �
 | Owner | Still owns |
 |-------|------------|
 | `FiscalYearService` | draft → active → closed; `close()` is journal-free |
-| `OpeningService` | permanent accounts, start date, deterministic opening key, operational-activity block |
+| `OpeningService` | permanent accounts, start date, deterministic opening key, config-gated operational-activity and prior-year-closed rules |
 | `ClosingService` | temporary close into retained earnings, end date, deterministic closing key |
 | `DocumentService` | balance, postable accounts, numbering, idempotency, `create()` → `post()` |
 | `ReversalService` | same-FY operational full-document reversal; does not post into a closed year |
@@ -297,10 +297,11 @@ $opening = Accounting::opening()->find($fy, $branchId = null);              // d
 - Posts the draft for this bucket **in place** (`status: draft → posted`) — never a
   second document with the same idempotency key.
 - Requires balance: `UnbalancedDocumentException` if the draft's items do not sum to
-  zero (same tolerance as any other document).
-- Requires no posted operational (non-opening) document in the target year yet
-  (`opening_has_posted_activity`) — same rule `post()` always enforced, just deferred
-  to this step instead of `saveDraft()`.
+  zero (exact decimal comparison, same as any other document).
+- If `opening.allow_after_posted_activity` is `false`, refuses when a posted
+  operational (non-opening) document already exists (`opening_has_posted_activity`).
+  Default is `true` — confirm/post may run after operational activity.
+  The prior-year-closed gate is separate (`require_prior_year_closed_for_confirm`).
 - Rejects if no draft (or matching posted) document exists for the bucket
   (`opening_no_draft`) — call `saveDraft()` first.
 - Idempotent: confirming an already-posted bucket returns it unchanged.
@@ -375,9 +376,9 @@ Rules:
 - `target.start_date` must equal `source.end_date + 1 day`. Gaps, overlaps, earlier years, and later non-consecutive years are refused.
 - Source extraction is `LedgerQuery::make()->forFiscalYear($source)->branch($branchId)->periodTotalsByAccount()`. Never `cached_balance` / `BalanceService`.
 - Permanent = `AccountType::isPermanent()` (asset, liability, equity). Temporary = `isTemporary()` (income, expense). Temporaries never become opening lines.
-- Signed balance `S = debit - credit`. `S > 0` → debit amount `S`; `S < 0` → credit amount `abs(S)` after orientation is known. `|S| < 0.01` is omitted.
+- Signed balance `S = debit - credit` via `Amount`. `S > 0` → debit amount `S`; `S < 0` → credit amount `|S|`. Zero at storage scale is omitted. No epsilon.
 - One opening document per source `documents.branch_id` bucket. **`NULL` is a real bucket** and is not merged with the configured default branch.
-- Each branch document must balance on its own. If that branch’s temporary residual has `abs(R) >= 0.01`, the **entire** carry-forward fails (no retained earnings, no equity plug, no closing journal).
+- Each branch document must balance on its own. If that branch’s temporary residual is not exactly zero, the **entire** carry-forward fails (no retained earnings, no equity plug, no closing journal).
 - A material permanent balance on a non-postable account fails the entire operation.
 - Canonical path per non-empty bucket: `OpeningService::saveDraft()` (creates or
   replaces the draft in place). Nothing is posted here. `completeOpening($target)`
@@ -425,8 +426,8 @@ Rules:
 - Unposted documents are not checked here; `FiscalYearService::close()` still owns that gate.
 - Extraction is `LedgerQuery::make()->forFiscalYear($fy)->branch($branchId)->periodTotalsByAccount()`. Never `cached_balance` / `BalanceService`.
 - One closing document per posted `documents.branch_id` bucket that has material temporaries. **`NULL` is a real bucket.**
-- `S = round(debit - credit, 2)`. Temporary `S > 0` → credit `abs(S)`; `S < 0` → debit `abs(S)`. `|S| < 0.01` is omitted.
-- Branch residual `R = Σ S` over temporaries. `|R| ≥ 0.01`: debit RE on net loss (`R > 0`), credit RE on net profit (`R < 0`). `|R| < 0.01`: no RE line.
+- `S = debit - credit` via `Amount`. Temporary `S > 0` → credit `|S|`; `S < 0` → debit `|S|`. Zero at storage scale is omitted.
+- Branch residual `R = Σ S` over temporaries. Non-zero `R`: debit RE on net loss (`R > 0`), credit RE on net profit (`R < 0`). Exact zero: no RE line.
 - RE is `config('accounting.account.system_accounts.retained_earnings')` and must be an active, postable, permanent **equity** account (default code `310101`).
 - A material temporary on a non-postable/inactive account fails the **entire** transaction (`closing_non_postable_temporary`).
 - Document: `type=closing`, `date=fy.end_date`, `branch_id` always present (including `null`), `idempotency_key=closing:{fyId}:branch:{id|none}`, `meta.operation=close_pnl`.

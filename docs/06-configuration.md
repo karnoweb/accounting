@@ -13,6 +13,8 @@ return [
     'account' => [...],
     'document' => [...],
     'fiscal_year' => [...],
+    'opening' => [...],
+    'period' => [...],
     'balance' => [...],
     'validation' => [...],
     'reports' => [...],
@@ -30,8 +32,8 @@ return [
 | کلید | پیش‌فرض | توضیح |
 |------|---------|-------|
 | `prefix` | `acc_` | پیشوند جداول |
-| `date_format` | `Y-m-d` | فرمت مرجع تاریخ |
-| `decimal_places` | `2` | دقت مبلغ‌ها |
+| `date_format` | `Y-m-d` | در config هست؛ سرویس‌های اصلی آن را نمی‌خوانند (informational) |
+| `decimal_places` | `2` | مقیاس ذخیره‌سازی، مقایسه و نمایش مبلغ‌ها. با ستون‌های `decimal(15,2)` یکی است. محاسبات حسابداری با `Amount` (BCMath) انجام می‌شود، نه float. |
 
 نکته: `BaseModel::getTable()` این پیشوند را به نام جداول مدل‌ها اضافه می‌کند.
 
@@ -61,7 +63,7 @@ return [
 
 - خود پکیج جدول `branches` را ایجاد نمی‌کند.
 - اگر `separate_numbering = false` باشد، شماره سند در هر سال مالی مشترک است.
-- اگر `separate_numbering = true` باشد، `DocumentNumberSequence` به ازای هر FY+Branch جدا می‌شود.
+- اگر `separate_numbering = true` باشد، `DocumentNumberSequence` به ازای هر FY+Branch جدا می‌شود و یکتایی شماره روی `(fiscal_year_id, numbering_bucket, number)` است.
 
 ## `account`
 
@@ -76,18 +78,18 @@ return [
 
 ### `system_accounts`
 
-کلیدهای پیش‌فرض:
+کلیدهای پیش‌فرض در `config/accounting.php` (نگاشت به کد حساب):
 
-- `cash`
-- `bank`
-- `receivables`
-- `payables`
-- `sales_income`
-- `cost_of_goods`
-- `refund_expense`
-- `retained_earnings`
+- هسته: `cash`, `bank`, `receivables`, `payables`, `sales_income`, `cost_of_goods`, `refund_expense`, `retained_earnings`
+- انبار/یکپارچگی: `inventory`, `inventory_shrinkage`, `inventory_count_gain`
+- پرداخت آنلاین: `gateway_clearing`, `bank_fee`
+- فروش: `sales_discount`, `sales_return`
+- مالیات: `vat_payable`, `payroll_tax_payable`
+- حقوق: `employee_loan_receivable`, `payroll_payable`, `payroll_insurance_payable`, `payroll_salary_expense`, `payroll_employer_insurance`
 
-این کلیدها قرارداد مهم سرویس‌ها هستند؛ مخصوصاً `retained_earnings` برای `ClosingService`.
+وجود کلید فقط نگاشت کد است؛ ماژول انبار/حقوق/درگاه داخل این پکیج نیست. `ClosingService` به `retained_earnings` وابسته است.
+
+`DefaultAccountsSeeder` اگر `config('accounting.seed.branch_id')` ست باشد همان شعبه را استفاده می‌کند. این کلید در فایل منتشرشدهٔ config **نیست**؛ فقط در صورت نیاز در اپ میزبان تعریف کنید.
 
 ## `document`
 
@@ -152,7 +154,8 @@ return [
 
 | کلید | پیش‌فرض | توضیح |
 |------|---------|-------|
-| `per_page` | `50` | در config وجود دارد، اما گزارش‌های هسته‌ای فعلی DTO-based هستند و صفحه‌بندی داخلی از این کلید استفاده نمی‌کند |
+| `per_page` | `50` | اندازهٔ پیش‌فرض صفحه در `ReportService::resolvePagination()` برای گزارش‌های paginated |
+| `cash_system_keys` | `['cash', 'bank', 'gateway_clearing']` | کلیدهای `account.system_accounts` که `cashMovements()` آن‌ها را حساب نقد می‌داند. از عنوان یا کد حساب استنتاج نمی‌شود. |
 
 ## پیشنهاد پیکربندی اولیه
 
@@ -182,6 +185,20 @@ return [
     'allow_overlap' => false,
 ],
 ```
+
+## وضعیت اجرا (enforcement)
+
+| کلید | وضعیت |
+|------|--------|
+| `enabled` | **unused** — سرویس‌ها آن را نمی‌خوانند |
+| `general.date_format` | **unused** / informational |
+| `document.allowed_types` | **unused** — قرارداد؛ create/post نوع آزاد را رد نمی‌کند |
+| `document.workflow_enabled` | **unused** — وضعیت‌های `pending`/`approved` وجود دارند، سرویس workflow نیست |
+| `fiscal_year.default_id` | **unused** — resolve از `findByDate` / `current()` است |
+| `balance.update_strategy` | **unused** — observer همیشه immediate است |
+| بقیهٔ کلیدهای همین فایل | **fully enforced** مگر جایی که صریحاً گفته شده |
+
+این کلیدهای unused را implement / deprecate / حذف کنید؛ مستندات آن‌ها را طوری ننویسید که انگار امروز enforce می‌شوند.
 
 ## تغییرات حساس
 

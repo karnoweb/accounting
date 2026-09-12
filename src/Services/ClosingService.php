@@ -14,6 +14,7 @@ use Karnoweb\Accounting\Models\Account;
 use Karnoweb\Accounting\Models\Document;
 use Karnoweb\Accounting\Models\FiscalYear;
 use Karnoweb\Accounting\Reporting\LedgerQuery;
+use Karnoweb\Accounting\Support\Amount;
 
 /**
  * P&L close: zero temporary accounts into retained earnings while the year is still active.
@@ -22,8 +23,6 @@ use Karnoweb\Accounting\Reporting\LedgerQuery;
  */
 class ClosingService
 {
-    private const TOLERANCE = 0.01;
-
     public function __construct(
         private DocumentService $documentService,
         private FiscalYearService $fiscalYearService,
@@ -35,7 +34,7 @@ class ClosingService
         $fiscalYear = $this->resolveFiscalYear($fiscalYear);
 
         foreach ($this->postedBranchIds($fiscalYear) as $branchId) {
-            if (abs($this->temporaryResidualForBranch($fiscalYear, $branchId)) >= self::TOLERANCE) {
+            if ( ! $this->temporaryResidualForBranch($fiscalYear, $branchId)->isZero()) {
                 return false;
             }
         }
@@ -154,7 +153,7 @@ class ClosingService
 
     /**
      * @param  Collection<int, Document>  $existingClosings
-     * @return list<array{branch_id: ?int, items: list<array{account_id: int, amount: float, sign: int}>, residual: float}>
+     * @return list<array{branch_id: ?int, items: list<array{account_id: int, amount: string, sign: int}>, residual: string}>
      */
     private function plansFromSource(FiscalYear $fiscalYear, Collection $existingClosings): array
     {
@@ -183,7 +182,7 @@ class ClosingService
 
     /**
      * @param  Collection<int, Document>|null  $existingClosings
-     * @return array{branch_id: ?int, items: list<array{account_id: int, amount: float, sign: int}>, residual: float}
+     * @return array{branch_id: ?int, items: list<array{account_id: int, amount: string, sign: int}>, residual: string}
      */
     private function planForBranch(
         FiscalYear $fiscalYear,
@@ -204,11 +203,11 @@ class ClosingService
             : Account::query()->whereIn('id', $accountIds)->get()->keyBy('id');
 
         $items = [];
-        $residual = 0.0;
+        $residual = Amount::zero();
 
         foreach ($totals as $accountId => $row) {
-            $signed = round((float) $row['debit'] - (float) $row['credit'], 2);
-            if (abs($signed) < self::TOLERANCE) {
+            $signed = Amount::signedBalance($row['debit'], $row['credit']);
+            if ($signed->isZero()) {
                 continue;
             }
 
@@ -230,10 +229,10 @@ class ClosingService
 
                 $items[] = [
                     'account_id' => $account->id,
-                    'amount' => abs($signed),
-                    'sign' => $signed > 0 ? -1 : 1,
+                    'amount' => $signed->abs()->toStorage(),
+                    'sign' => $signed->isPositive() ? -1 : 1,
                 ];
-                $residual += $signed;
+                $residual = $residual->add($signed);
 
                 continue;
             }
@@ -248,19 +247,18 @@ class ClosingService
             );
         }
 
-        $residual = round($residual, 2);
-        if ($retainedEarnings && abs($residual) >= self::TOLERANCE) {
+        if ($retainedEarnings && ! $residual->isZero()) {
             $items[] = [
                 'account_id' => $retainedEarnings->id,
-                'amount' => abs($residual),
-                'sign' => $residual > 0 ? 1 : -1,
+                'amount' => $residual->abs()->toStorage(),
+                'sign' => $residual->isPositive() ? 1 : -1,
             ];
         }
 
         return [
             'branch_id' => $branchId,
             'items' => $items,
-            'residual' => $residual,
+            'residual' => $residual->toStorage(),
         ];
     }
 
@@ -284,17 +282,18 @@ class ClosingService
             foreach ($document->items as $item) {
                 $accountId = (int) $item->account_id;
                 $totals[$accountId] ??= ['debit' => 0.0, 'credit' => 0.0];
+                $amount = Amount::of($item->amount);
                 if ((int) $item->sign === 1) {
-                    $totals[$accountId]['debit'] -= (float) $item->amount;
+                    $totals[$accountId]['debit'] = Amount::of($totals[$accountId]['debit'])->subtract($amount)->toFloat();
                 } else {
-                    $totals[$accountId]['credit'] -= (float) $item->amount;
+                    $totals[$accountId]['credit'] = Amount::of($totals[$accountId]['credit'])->subtract($amount)->toFloat();
                 }
             }
         }
     }
 
     /**
-     * @param  array{branch_id: ?int, items: list<array{account_id: int, amount: float, sign: int}>, residual?: float}  $plan
+     * @param  array{branch_id: ?int, items: list<array{account_id: int, amount: string, sign: int}>, residual?: string}  $plan
      */
     private function postClosingDocument(FiscalYear $fiscalYear, array $plan): Document
     {
@@ -317,7 +316,7 @@ class ClosingService
     }
 
     /**
-     * @param  list<array{branch_id: ?int, items: list<array{account_id: int, amount: float, sign: int}>, residual?: float}>  $expected
+     * @param  list<array{branch_id: ?int, items: list<array{account_id: int, amount: string, sign: int}>, residual?: string}>  $expected
      * @return list<Document>|null
      */
     private function matchingPostedClosings(FiscalYear $fiscalYear, array $expected): ?array
@@ -356,7 +355,7 @@ class ClosingService
     }
 
     /**
-     * @param  list<array{account_id: int, amount: float, sign: int}>  $expected
+     * @param  list<array{account_id: int, amount: int|float|string, sign: int}>  $expected
      */
     private function itemsMatch(array $expected, Document $document): bool
     {
@@ -367,7 +366,7 @@ class ClosingService
         $actual = $document->items
             ->map(fn ($item) => [
                 'account_id' => (int) $item->account_id,
-                'amount' => round((float) $item->amount, 2),
+                'amount' => Amount::of($item->amount)->toStorage(),
                 'sign' => (int) $item->sign,
             ])
             ->sortBy(fn (array $row) => $row['account_id'].':'.$row['sign'])
@@ -376,7 +375,7 @@ class ClosingService
         $wanted = collect($expected)
             ->map(fn (array $item) => [
                 'account_id' => (int) $item['account_id'],
-                'amount' => round((float) $item['amount'], 2),
+                'amount' => Amount::of($item['amount'])->toStorage(),
                 'sign' => (int) $item['sign'],
             ])
             ->sortBy(fn (array $row) => $row['account_id'].':'.$row['sign'])
@@ -387,7 +386,7 @@ class ClosingService
             if ($row === null
                 || $row['account_id'] !== $item['account_id']
                 || $row['sign'] !== $item['sign']
-                || abs($row['amount'] - $item['amount']) >= self::TOLERANCE
+                || ! Amount::of($row['amount'])->equals($item['amount'])
             ) {
                 return false;
             }
@@ -423,7 +422,7 @@ class ClosingService
             ->get();
     }
 
-    private function temporaryResidualForBranch(FiscalYear $fiscalYear, ?int $branchId): float
+    private function temporaryResidualForBranch(FiscalYear $fiscalYear, ?int $branchId): Amount
     {
         $totals = LedgerQuery::make()
             ->forFiscalYear($fiscalYear)
@@ -435,20 +434,20 @@ class ClosingService
             ? collect()
             : Account::query()->whereIn('id', $accountIds)->get()->keyBy('id');
 
-        $residual = 0.0;
+        $residual = Amount::zero();
         foreach ($totals as $accountId => $row) {
-            $signed = round((float) $row['debit'] - (float) $row['credit'], 2);
-            if (abs($signed) < self::TOLERANCE) {
+            $signed = Amount::signedBalance($row['debit'], $row['credit']);
+            if ($signed->isZero()) {
                 continue;
             }
 
             $account = $accounts->get((int) $accountId);
             if ($account && $account->type->isTemporary()) {
-                $residual += $signed;
+                $residual = $residual->add($signed);
             }
         }
 
-        return round($residual, 2);
+        return $residual;
     }
 
     private function idempotencyKey(FiscalYear $fiscalYear, ?int $branchId): string

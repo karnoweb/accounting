@@ -21,16 +21,17 @@
 | # | جدول | شرح |
 |---|------|-----|
 | ۱ | fiscal_years | سال‌های مالی |
-| ۲ | accounts | حساب‌های مالی |
-| ۳ | cost_centers | مراکز هزینه |
-| ۴ | documents | اسناد حسابداری (+ `idempotency_key` یکتا و nullable) |
-| ۵ | document_items | آیتم‌های اسناد |
-| ۶ | document_logs | لاگ تغییرات اسناد |
-| ۷ | document_number_sequences | تخصیص امن شماره سند (قفل ردیف) |
+| ۲ | accounting_periods | دوره‌های ثبت داخل هر سال مالی |
+| ۳ | accounts | حساب‌های مالی |
+| ۴ | cost_centers | مراکز هزینه |
+| ۵ | documents | اسناد حسابداری (+ `idempotency_key` و `accounting_period_id`) |
+| ۶ | document_items | آیتم‌های اسناد |
+| ۷ | document_logs | لاگ تغییرات اسناد |
+| ۸ | document_number_sequences | تخصیص امن شماره سند (قفل ردیف) |
 
 **Unique مهم:**
 
-- `documents (fiscal_year_id, number)` — شماره یکتا در هر سال مالی
+- `documents (fiscal_year_id, numbering_bucket, number)` — شماره یکتا در هر سال و سطل شماره‌گذاری (`0` وقتی `separate_numbering` خاموش است)
 - `documents.idempotency_key` — یکتایی اختیاری برای retry (چند `NULL` مجاز است)
 - `document_number_sequences (fiscal_year_id, branch_id)` — یک ردیف توالی به ازای FY (+ شعبه در صورت `separate_numbering`)
 
@@ -44,7 +45,9 @@
 |-----------|-----------|-----------|-----------------|
 | accounts | accounts | Self-referential | parent_id |
 | accounts | (شعبه اختیاری) | Many to One | branch_id |
+| accounting_periods | fiscal_years | Many to One | fiscal_year_id |
 | documents | fiscal_years | Many to One | fiscal_year_id |
+| documents | accounting_periods | Many to One | accounting_period_id |
 | documents | documents | Self (reversal → original) | reversed_document_id |
 | documents | (شعبه اختیاری) | Many to One | branch_id |
 | document_items | documents | Many to One | document_id |
@@ -81,7 +84,7 @@
 | title | varchar(100) | ❌ | - | عنوان سال مالی |
 | start_date | date | ❌ | - | تاریخ شروع |
 | end_date | date | ❌ | - | تاریخ پایان |
-| status | enum | ❌ | draft | وضعیت (draft, active, closed) |
+| status | varchar(20) | ❌ | draft | وضعیت دامنه (`draft`, `active`, `closed`) — ستون SQL enum نیست |
 | is_current | boolean | ❌ | false | سال مالی جاری — حداکثر یک ردیف active+current (اعمال در سرویس) |
 | opening_done | boolean | ❌ | false | افتتاحیه انجام شده (فاز بعد؛ close/activate آن را true نمی‌کنند) |
 | opened_at | timestamp | ✅ | null | زمان افتتاح |
@@ -107,6 +110,26 @@
 | fiscal_years_is_current_index | is_current | Index | یافتن سال جاری |
 
 هم‌پوشانی بازه‌های غیریکسان (مثلاً ژانویه–دسامبر در برابر ژوئن–مه) با محدودیت قابل‌حمل دیتابیس قابل بیان نیست؛ در `FiscalYearService` داخل تراکنش رد می‌شود. جزئیات چرخه: [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md).
+
+---
+
+## ۳-ب. جدول accounting_periods (دوره ثبت)
+
+از ۱۳.۶.۰ هر سال مالی می‌تواند یک یا چند دوره ثبت داشته باشد. دوره **شعبه ندارد**. پیش‌فرض `period.auto_create_on_activate` یک دوره `open` تمام‌سال می‌سازد.
+
+| فیلد | نوع | Null | پیش‌فرض | شرح |
+|------|-----|------|---------|-----|
+| id | bigint unsigned | ❌ | auto | شناسه |
+| fiscal_year_id | bigint unsigned | ❌ | - | سال مالی مالک |
+| name | varchar(100) | ❌ | - | عنوان دوره |
+| start_date | date | ❌ | - | شروع |
+| end_date | date | ❌ | - | پایان |
+| status | varchar(20) | ❌ | draft | `draft` / `open` / `closed` |
+| opened_at | timestamp | ✅ | null | زمان باز شدن |
+| closed_at | timestamp | ✅ | null | زمان بسته شدن |
+| created_at / updated_at | timestamp | ✅ | null | زمان‌ها |
+
+Unique: `(fiscal_year_id, start_date, end_date)`. دوره بسته دوباره باز نمی‌شود. ثبت سند (`create` و `post`) فقط در سال `active` **و** دوره `open` مجاز است. شرح رفتاری: [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md) و [08-api-reference.md](08-api-reference.md).
 
 ### ۳.۵ نمونه داده
 
@@ -134,8 +157,8 @@
 | title | varchar(255) | ❌ | - | عنوان حساب |
 | description | varchar(500) | ✅ | null | توضیحات |
 | level | tinyint unsigned | ❌ | 0 | سطح (0-3) |
-| type | enum | ❌ | - | نوع حساب |
-| nature | enum | ❌ | - | ماهیت حساب |
+| type | varchar(20) | ❌ | - | نوع حساب (مقادیر دامنه: Asset/Liability/…) |
+| nature | varchar(20) | ❌ | - | ماهیت حساب |
 | is_active | boolean | ❌ | true | وضعیت فعال |
 | is_system | boolean | ❌ | false | حساب سیستمی |
 | allow_direct_posting | boolean | ❌ | true | قابل ثبت مستقیم |
@@ -255,16 +278,19 @@
 |------|-----|------|---------|-----|
 | id | bigint unsigned | ❌ | auto | شناسه یکتا |
 | fiscal_year_id | bigint unsigned | ❌ | - | شناسه سال مالی |
+| accounting_period_id | bigint unsigned | ✅ | null | دوره ثبت (FK به accounting_periods) |
 | branch_id | bigint unsigned | ✅ | null | شناسه شعبه |
-| number | bigint unsigned | ❌ | - | شماره سند در سال |
+| number | bigint unsigned | ❌ | - | شماره سند در سطل شماره‌گذاری |
+| numbering_bucket | bigint unsigned | ❌ | 0 | سطل یکتایی شماره (`0` یا `branch_id` وقتی `separate_numbering`) |
 | reference | varchar(50) | ✅ | null | شماره مرجع خارجی |
 | date | date | ❌ | - | تاریخ سند |
 | type | varchar(50) | ❌ | - | نوع سند |
-| status | enum | ❌ | draft | وضعیت سند |
+| status | varchar(20) | ❌ | draft | وضعیت سند (مقادیر دامنه؛ SQL enum نیست) |
 | description | varchar(500) | ✅ | null | توضیحات |
 | notes | text | ✅ | null | یادداشت‌ها |
 | source_type | varchar(50) | ✅ | null | نوع منبع |
 | source_id | bigint unsigned | ✅ | null | شناسه منبع |
+| idempotency_key | varchar(100) | ✅ | null | کلید یکتای retry (چند NULL مجاز) |
 | reversed_document_id | bigint unsigned | ✅ | null | سند برگشت‌شده (روی سند reversal) |
 | posted_at | timestamp | ✅ | null | زمان ثبت قطعی |
 | created_by | bigint unsigned | ✅ | null | ایجادکننده |
@@ -304,8 +330,10 @@
 | نام | فیلد(ها) | نوع | شرح |
 |-----|----------|-----|-----|
 | PRIMARY | id | Primary | کلید اصلی |
-| documents_number_unique | fiscal_year_id, number | Unique | یکتایی شماره در سال |
+| acc_documents_fy_bucket_number_unique | fiscal_year_id, numbering_bucket, number | Unique | یکتایی شماره در سال و سطل |
 | documents_fiscal_year_id_foreign | fiscal_year_id | Foreign | رابطه سال مالی |
+| documents_accounting_period_id_index | accounting_period_id | Index / FK | دوره ثبت (`nullOnDelete`) |
+| acc_documents_idempotency_key_unique | idempotency_key | Unique | یکتایی retry (چند NULL مجاز) |
 | documents_branch_id_foreign | branch_id | Foreign | رابطه شعبه |
 | documents_date_index | date | Index | فیلتر تاریخ |
 | documents_type_index | type | Index | فیلتر نوع |
@@ -459,36 +487,11 @@
 
 ---
 
-## ۹. جدول account_balances (خلاصه مانده - اختیاری)
+## ۹. جدول account_balances — پیاده‌سازی نشده
 
-### ۹.۱ شرح
+جدول جداگانهٔ `account_balances` **وجود ندارد** و migration آن در پکیج نیست.
 
-جدول کمکی برای نگهداری خلاصه مانده حساب‌ها در هر سال مالی. استفاده از این جدول برای Performance در پروژه‌های بزرگ توصیه می‌شود.
-
-### ۹.۲ فیلدها
-
-| فیلد | نوع | Null | پیش‌فرض | شرح |
-|------|-----|------|---------|-----|
-| id | bigint unsigned | ❌ | auto | شناسه یکتا |
-| account_id | bigint unsigned | ❌ | - | شناسه حساب |
-| fiscal_year_id | bigint unsigned | ❌ | - | شناسه سال مالی |
-| opening_debit | decimal(15,2) | ❌ | 0.00 | مانده افتتاحیه بدهکار |
-| opening_credit | decimal(15,2) | ❌ | 0.00 | مانده افتتاحیه بستانکار |
-| period_debit | decimal(15,2) | ❌ | 0.00 | گردش بدهکار دوره |
-| period_credit | decimal(15,2) | ❌ | 0.00 | گردش بستانکار دوره |
-| closing_balance | decimal(15,2) | ❌ | 0.00 | مانده پایانی |
-| calculated_at | timestamp | ✅ | null | زمان محاسبه |
-| created_at | timestamp | ✅ | null | زمان ایجاد |
-| updated_at | timestamp | ✅ | null | زمان بروزرسانی |
-
-### ۹.۳ ایندکس‌ها
-
-| نام | فیلد(ها) | نوع | شرح |
-|-----|----------|-----|-----|
-| PRIMARY | id | Primary | کلید اصلی |
-| account_balances_unique | account_id, fiscal_year_id | Unique | یکتایی ترکیب |
-| account_balances_account_id_foreign | account_id | Foreign | رابطه حساب |
-| account_balances_fiscal_year_id_foreign | fiscal_year_id | Foreign | رابطه سال مالی |
+ماندهٔ کش‌شده فقط روی `accounts.cached_balance` (+ `balance_updated_at`) نگهداری می‌شود. گزارش‌های هسته از این کش استفاده نمی‌کنند؛ از `document_items` اسناد `posted` می‌خوانند.
 
 ---
 
@@ -562,14 +565,16 @@
 
 | ترتیب | جدول | وابستگی |
 |-------|------|---------|
-| ۱ | branches | - |
-| ۲ | fiscal_years | - |
-| ۳ | accounts | branches |
-| ۴ | cost_centers | - |
-| ۵ | documents | fiscal_years, branches |
-| ۶ | document_items | documents, accounts, cost_centers |
-| ۷ | document_logs | documents |
-| ۸ | account_balances (اختیاری) | accounts, fiscal_years |
+| ۱ | fiscal_years | - |
+| ۲ | accounts | - (branch_id بدون FK به جدول پکیج) |
+| ۳ | cost_centers | - |
+| ۴ | documents | fiscal_years |
+| ۵ | document_items | documents, accounts, cost_centers |
+| ۶ | document_logs | documents |
+| ۷ | document_number_sequences | fiscal_years |
+| ۸ | accounting_periods + documents.accounting_period_id | fiscal_years, documents |
+
+پکیج جدول `branches` و `account_balances` را ایجاد نمی‌کند.
 
 ---
 
