@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Karnoweb\Accounting\Reporting;
 
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Karnoweb\Accounting\Enums\AccountType;
 use Karnoweb\Accounting\Enums\DocumentStatus;
 use Karnoweb\Accounting\Exceptions\InvalidReportFilterException;
@@ -123,7 +124,8 @@ final class PeriodClosingReport
 
         $postedDates = (clone $base)
             ->where("{$documents}.status", DocumentStatus::POSTED->value)
-            ->selectRaw("MIN({$documents}.date) as first_date, MAX({$documents}.date) as last_date")
+            ->select(DB::raw("MIN({$documents}.date) as first_date, MAX({$documents}.date) as last_date"))
+            ->reorder()
             ->first();
 
         return [

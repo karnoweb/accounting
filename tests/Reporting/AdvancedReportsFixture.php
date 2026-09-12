@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Karnoweb\Accounting\Tests\Reporting;
 
+use Illuminate\Support\Facades\DB;
 use Karnoweb\Accounting\Enums\AccountType;
 use Karnoweb\Accounting\Facades\Accounting;
 use Karnoweb\Accounting\Models\Account;
@@ -125,5 +126,32 @@ trait AdvancedReportsFixture
     private function report()
     {
         return Accounting::report();
+    }
+
+    /**
+     * Compiled SQL for first/last posted document dates (MIN/MAX), if any.
+     *
+     * @param  callable(): mixed  $callback
+     */
+    private function firstPostedDateBoundsSql(callable $callback): string
+    {
+        $captured = [];
+        DB::listen(function ($query) use (&$captured): void {
+            $sql = $query->sql;
+            if (
+                str_contains($sql, 'first_date')
+                && str_contains($sql, 'last_date')
+                && str_contains(strtoupper($sql), 'MIN(')
+                && str_contains(strtoupper($sql), 'MAX(')
+            ) {
+                $captured[] = $sql;
+            }
+        });
+
+        $callback();
+
+        $this->assertNotEmpty($captured, 'Expected a MIN/MAX posted-date bounds query.');
+
+        return $captured[0];
     }
 }

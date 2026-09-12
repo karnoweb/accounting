@@ -1,5 +1,13 @@
 # Changelog
 
+## [13.11.2] - 2026-09-12
+
+### Fixed
+
+- Period closing on MySQL/MariaDB 1140 — `activitySummary()` selected
+  `acc_documents.*` together with `MIN/MAX(date)` and no `GROUP BY`; date
+  bounds now select only the two aggregates.
+
 ## [13.11.1] - 2026-09-12
 
 ### Fixed

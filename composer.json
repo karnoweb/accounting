@@ -16,7 +16,7 @@
             "email": "info@karnoweb.com"
         }
     ],
-    "version": "13.11.1",
+    "version": "13.11.2",
     "require": {
         "php": "^8.3",
         "ext-bcmath": "*",

@@ -115,6 +115,23 @@ class PeriodClosingReportTest extends TestCase
         ]);
     }
 
+    public function test_posted_date_bounds_sql_selects_only_aggregates(): void
+    {
+        $world = $this->turnoverWorld();
+        $sql = $this->firstPostedDateBoundsSql(fn () => $this->report()->periodClosing([
+            'accounting_period_id' => $world['jan']->id,
+            'branch_id' => 1,
+        ], $this->offsetPage()));
+
+        $this->assertDoesNotMatchRegularExpression(
+            '/`?acc_documents`?\s*\*.*(?:MIN|MAX)\(|(?:MIN|MAX)\(.*`?acc_documents`?\s*\*/is',
+            $sql,
+        );
+        $this->assertStringNotContainsString('acc_documents.*', $sql);
+        $this->assertStringNotContainsString('`acc_documents`.*', $sql);
+        $this->assertMatchesRegularExpression('/MIN\(.+\.date\).+MAX\(.+\.date\)/is', $sql);
+    }
+
     public function test_opening_incomplete_is_a_warning(): void
     {
         $world = $this->turnoverWorld();

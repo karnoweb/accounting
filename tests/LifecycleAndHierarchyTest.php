@@ -125,6 +125,6 @@ class LifecycleAndHierarchyTest extends TestCase
 
     public function test_package_version_matches_composer(): void
     {
-        $this->assertSame('13.11.1', Accounting::version());
+        $this->assertSame('13.11.2', Accounting::version());
     }
 }
