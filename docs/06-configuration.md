@@ -17,6 +17,7 @@ return [
     'period' => [...],
     'balance' => [...],
     'validation' => [...],
+    'routes' => [...],
     'reports' => [...],
 ];
 ```
@@ -149,6 +150,16 @@ return [
 | `check_account_active` | `true` | رد حساب غیرفعال |
 | `check_date_range` | `true` | کنترل تاریخ داخل بازه FY |
 | `strict_balance` | `true` | رد سند نامتعادل |
+
+## `routes`
+
+پکیج به‌صورت پیش‌فرض HTTP ثبت نمی‌کند. برای `GET /accounts` و `GET /accounts/hierarchy`:
+
+| کلید | پیش‌فرض | توضیح |
+|------|---------|-------|
+| `enabled` | `false` | ثبت routeهای فهرست و درخت حساب |
+| `prefix` | `''` | پیشوند URL |
+| `middleware` | `[]` | middleware میزبان؛ خالی یعنی بدون گروه اجباری |
 
 ## `reports`
 

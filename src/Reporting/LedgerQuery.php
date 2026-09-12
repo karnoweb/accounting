@@ -89,6 +89,9 @@ final class LedgerQuery
 
     private ReportMode $mode = ReportMode::Financial;
 
+    /** @var (\Closure(QueryBuilder, string, string): void)|null */
+    private $accountConstraint = null;
+
     public static function make(): self
     {
         return new self;
@@ -108,6 +111,19 @@ final class LedgerQuery
             ->map(fn ($account) => $account instanceof Account ? $account->id : (int) $account)
             ->values()
             ->all();
+
+        return $this;
+    }
+
+    /**
+     * Extra SQL constraint on the joined accounts table (catalog / descendant
+     * scope). Does not load account ids into PHP.
+     *
+     * @param  \Closure(QueryBuilder, string, string): void  $callback
+     */
+    public function constrainAccounts(\Closure $callback): self
+    {
+        $this->accountConstraint = $callback;
 
         return $this;
     }
@@ -533,6 +549,7 @@ final class LedgerQuery
         }
 
         $this->applyAccountFilter($query, $items);
+        $this->applyAccountConstraint($query, $items);
         $this->applyAccountTypeFilter($query, $items);
         $this->applyBranchFilter($query, $documents);
         $this->applyCostCenterFilter($query, $items);
@@ -567,6 +584,17 @@ final class LedgerQuery
         if ($this->accountIds !== []) {
             $query->whereIn("{$items}.account_id", $this->accountIds);
         }
+    }
+
+    private function applyAccountConstraint(QueryBuilder $query, string $items): void
+    {
+        if ($this->accountConstraint === null) {
+            return;
+        }
+
+        $accounts = (new Account)->getTable();
+        $this->ensureAccountJoin($query, $items, $accounts);
+        ($this->accountConstraint)($query, $accounts, $items);
     }
 
     private function applyAccountTypeFilter(QueryBuilder $query, string $items): void
@@ -937,6 +965,31 @@ final class LedgerQuery
             'credit' => Amount::of($row->credit ?? 0)->toStorage(),
             'line_count' => (int) ($row->line_count ?? 0),
             'document_count' => (int) ($row->document_count ?? 0),
+        ];
+    }
+
+    /**
+     * Opening debit/credit totals for the whole scoped set (no per-account rows).
+     *
+     * @return array{opening_debit: string, opening_credit: string}
+     */
+    public function openingTotalsExact(): array
+    {
+        if ($this->resolvedFrom() === null) {
+            return [
+                'opening_debit' => Amount::zero()->toStorage(),
+                'opening_credit' => Amount::zero()->toStorage(),
+            ];
+        }
+
+        $items = (new DocumentItem)->getTable();
+        $row = $this->openingQuery()
+            ->selectRaw("COALESCE(SUM({$items}.debit), 0) as opening_debit, COALESCE(SUM({$items}.credit), 0) as opening_credit")
+            ->first();
+
+        return [
+            'opening_debit' => Amount::of($row->opening_debit ?? 0)->toStorage(),
+            'opening_credit' => Amount::of($row->opening_credit ?? 0)->toStorage(),
         ];
     }
 

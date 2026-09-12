@@ -11,6 +11,10 @@ use Karnoweb\Accounting\Enums\AccountType;
 use Karnoweb\Accounting\Exceptions\AccountNotFoundException;
 use Karnoweb\Accounting\Exceptions\InvalidAccountHierarchyException;
 use Karnoweb\Accounting\Models\Account;
+use Karnoweb\Accounting\Reporting\AccountCatalog;
+use Karnoweb\Accounting\Reporting\AccountHierarchyResult;
+use Karnoweb\Accounting\Reporting\AccountPageResult;
+use Karnoweb\Accounting\Reporting\ReportPagination;
 use Karnoweb\Accounting\Support\AccountHierarchy;
 
 /**
@@ -288,6 +292,28 @@ class AccountService
         }
 
         return $query->orderBy('code')->get();
+    }
+
+    /**
+     * Tree of public Levels 1–3. Level 4 is never loaded into the tree.
+     *
+     * @param  array<string, mixed>  $input
+     */
+    public function hierarchy(array $input = []): AccountHierarchyResult
+    {
+        return AccountCatalog::hierarchy($input);
+    }
+
+    /**
+     * Database-level pagination for any public level (1–4).
+     *
+     * Host route contract: GET /accounts?level=4&parent_id=…&cursor=…
+     *
+     * @param  array<string, mixed>  $input
+     */
+    public function paginate(array $input = [], array|ReportPagination|null $pagination = null): AccountPageResult
+    {
+        return AccountCatalog::paginate($input, $pagination);
     }
 
     /**

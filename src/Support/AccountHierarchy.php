@@ -29,4 +29,31 @@ final class AccountHierarchy
 
         return self::maxLevel();
     }
+
+    /**
+     * Public/API level is 1-based. Stored `accounts.level` stays 0-based
+     * (0 = Level 1, posting = Level 4 with the default four-level chart).
+     */
+    public static function displayLevel(int $storedLevel): int
+    {
+        return $storedLevel + 1;
+    }
+
+    public static function storedLevel(int $displayLevel): int
+    {
+        return $displayLevel - 1;
+    }
+
+    public static function displayMaxLevel(): int
+    {
+        return self::maxLevel() + 1;
+    }
+
+    /**
+     * Hierarchy trees never include the posting level (public Level 4).
+     */
+    public static function hierarchyMaxDisplayLevel(): int
+    {
+        return max(1, self::displayLevel(self::postingLevel()) - 1);
+    }
 }

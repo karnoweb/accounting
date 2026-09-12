@@ -31,6 +31,10 @@ final class AccountTurnoverRow
         public readonly int $transactionCount,
         public readonly int $documentCount,
         public readonly array $branches = [],
+        public readonly ?int $childrenCount = null,
+        public readonly ?bool $hasChildren = null,
+        public readonly ?int $level4Count = null,
+        public readonly ?bool $hasLevel4 = null,
     ) {}
 
     public function sortValue(string $sortBy): string
@@ -73,6 +77,19 @@ final class AccountTurnoverRow
             $payload['branches'] = $this->branches;
         }
 
+        if ($this->childrenCount !== null) {
+            $payload['children_count'] = $this->childrenCount;
+        }
+        if ($this->hasChildren !== null) {
+            $payload['has_children'] = $this->hasChildren;
+        }
+        if ($this->level4Count !== null) {
+            $payload['level_4_count'] = $this->level4Count;
+        }
+        if ($this->hasLevel4 !== null) {
+            $payload['has_level_4'] = $this->hasLevel4;
+        }
+
         return $payload;
     }
 
@@ -85,6 +102,10 @@ final class AccountTurnoverRow
         int $transactionCount,
         int $documentCount,
         array $branches = [],
+        ?int $childrenCount = null,
+        ?bool $hasChildren = null,
+        ?int $level4Count = null,
+        ?bool $hasLevel4 = null,
     ): self {
         $openingBalance = $openingDebit->subtract($openingCredit);
         $closingDebit = $openingDebit->add($periodDebit);
@@ -111,6 +132,10 @@ final class AccountTurnoverRow
             transactionCount: $transactionCount,
             documentCount: $documentCount,
             branches: $branches,
+            childrenCount: $childrenCount,
+            hasChildren: $hasChildren,
+            level4Count: $level4Count,
+            hasLevel4: $hasLevel4,
         );
     }
 }

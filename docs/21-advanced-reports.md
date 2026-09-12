@@ -55,6 +55,7 @@
 
 ### سایر فیلترها (جایی که معنای حسابداری دارند)
 
+`level` (عمومی ۱–۴) / `parent_id` / `code` (exact) / `is_active` /
 `account_id` / `account_ids[]` / `account_type` / `include_children` / `rollup_hierarchy` / `leaf_only` /
 `cost_center_id` / `cost_center_ids[]` / `document_type` / `document_types[]` /
 `document_number_from` / `document_number_to` / `search` / `min_amount` / `max_amount` /
@@ -120,7 +121,9 @@
 ### صفحه‌بندی
 
 واحد صفحه = یک حساب کامل. پیش‌فرض `account_code ASC, account_id ASC`.
-تجمیع در SQL است؛ chart حساب‌ها (نه میلیون‌ها خط دفتر) برای sortهای محاسبه‌شده مرتب می‌شود.
+بدون `level`، فقط حساب‌های دارای گردش (و اجداد در rollup) بارگذاری می‌شوند، نه کل chart.
+
+با `level=4` صفحه‌بندی در دیتابیس است (keyset روی `code`,`id`). Level 1–3 حساب همان سطح را صفحه می‌کنند و گردش نوادگان سطح ثبت را جمع می‌زنند. جزئیات: [22-account-hierarchy.md](22-account-hierarchy.md).
 
 ### مثال
 

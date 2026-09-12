@@ -36,14 +36,11 @@ final class AccountTurnoverReport
     public function compiled(): array
     {
         $filters = $this->filters->assertSort(LedgerReportFilters::TURNOVER_SORTS);
-        $query = $filters->toLedgerQuery();
+        $query = $this->ledgerQuery($filters);
 
-        $accounts = Account::query()
-            ->select(['id', 'parent_id', 'code', 'title', 'level', 'type', 'nature'])
-            ->orderBy('code')
-            ->orderBy('id')
-            ->get()
-            ->keyBy('id');
+        if ($filters->displayLevel !== null) {
+            return $this->compileCatalogLevel($filters, $query);
+        }
 
         $openings = $query->openingDebitCreditByAccount();
         $period = $query->periodActivityByAccount();
@@ -51,7 +48,8 @@ final class AccountTurnoverReport
             ? $query->periodTotalsByAccountAndBranch()
             : [];
 
-        $leafIds = $this->resolveLeafAccountIds($accounts, $openings, $period, $filters);
+        $leafIds = $this->resolveLeafAccountIds($openings, $period, $filters);
+        $accounts = $this->loadChartSlice($leafIds, $filters->rollupHierarchy);
         $rows = $this->buildRows($accounts, $leafIds, $openings, $period, $branchByAccount, $filters);
         $rows = $this->applyZeroFlags($rows, $filters);
 
@@ -76,6 +74,12 @@ final class AccountTurnoverReport
 
     public function build(): AccountTurnoverResult
     {
+        $filters = $this->filters->assertSort(LedgerReportFilters::TURNOVER_SORTS);
+
+        if ($filters->displayLevel !== null) {
+            return $this->buildCatalogLevel($filters);
+        }
+
         [$sorted, $reportTotals, $branchBreakdown, $filters] = $this->compiled();
         [$pageRows, $pagination] = $this->paginate($sorted);
         $pageTotals = $this->sumRows($pageRows, onlyLeaves: $filters->rollupHierarchy);
@@ -107,12 +111,11 @@ final class AccountTurnoverReport
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int, Account>  $accounts
      * @param  array<int, array{opening_debit: string, opening_credit: string}>  $openings
      * @param  array<int, array{debit: string, credit: string, transaction_count: int, document_count: int}>  $period
      * @return list<int>
      */
-    private function resolveLeafAccountIds($accounts, array $openings, array $period, LedgerReportFilters $filters): array
+    private function resolveLeafAccountIds(array $openings, array $period, LedgerReportFilters $filters): array
     {
         $ids = array_values(array_unique(array_merge(array_keys($openings), array_keys($period))));
 
@@ -122,14 +125,349 @@ final class AccountTurnoverReport
                 $ids = array_values(array_unique(array_merge($ids, $filters->accountIds)));
             }
         } elseif ($filters->includeZeroActivity) {
-            $posting = AccountHierarchy::postingLevel();
             $ids = array_values(array_unique(array_merge(
                 $ids,
-                $accounts->filter(fn (Account $account) => (int) $account->level === $posting)->keys()->all()
+                Account::query()->where('level', AccountHierarchy::postingLevel())->pluck('id')->all()
             )));
         }
 
         return array_map('intval', $ids);
+    }
+
+    /**
+     * @param  list<int>  $leafIds
+     * @return \Illuminate\Support\Collection<int, Account>
+     */
+    private function loadChartSlice(array $leafIds, bool $rollup)
+    {
+        if ($leafIds === []) {
+            return collect();
+        }
+
+        $accounts = Account::query()
+            ->select(['id', 'parent_id', 'code', 'title', 'level', 'type', 'nature'])
+            ->whereIn('id', $leafIds)
+            ->orderBy('code')
+            ->orderBy('id')
+            ->get()
+            ->keyBy('id');
+
+        if (! $rollup) {
+            return $accounts;
+        }
+
+        $missing = $accounts->pluck('parent_id')->filter()->unique()->diff($accounts->keys());
+        while ($missing->isNotEmpty()) {
+            $more = Account::query()
+                ->select(['id', 'parent_id', 'code', 'title', 'level', 'type', 'nature'])
+                ->whereIn('id', $missing->all())
+                ->get()
+                ->keyBy('id');
+            if ($more->isEmpty()) {
+                break;
+            }
+            $accounts = $accounts->union($more);
+            $missing = $more->pluck('parent_id')->filter()->unique()->diff($accounts->keys());
+        }
+
+        return $accounts;
+    }
+
+    private function ledgerQuery(LedgerReportFilters $filters): LedgerQuery
+    {
+        $query = $filters->toLedgerQuery();
+        if ($filters->displayLevel === null) {
+            return $query;
+        }
+
+        $catalog = $filters->catalogFilters();
+
+        return $query->constrainAccounts(
+            fn ($builder, string $accounts) => $catalog->constrainPostingAccounts($builder, $accounts)
+        );
+    }
+
+    /**
+     * @return array{0: list<AccountTurnoverRow>, 1: array<string, string>, 2: list<array<string, mixed>>|null, 3: LedgerReportFilters, 4: LedgerQuery}
+     */
+    private function compileCatalogLevel(LedgerReportFilters $filters, LedgerQuery $query): array
+    {
+        $catalog = new AccountCatalog($filters->catalogFilters());
+        $accounts = $catalog->listingQuery()
+            ->addSelect(['type', 'nature'])
+            ->get()
+            ->keyBy('id');
+
+        $rows = $this->rowsForCatalogAccounts($filters, $query, $accounts);
+        $reportTotals = $this->catalogReportTotals($query);
+        $sorted = $this->sortRows($rows, $filters);
+        $branchBreakdown = $filters->branchScope->includeBreakdown
+            ? array_values($query->periodTotalsByBranch())
+            : null;
+
+        return [$sorted, $reportTotals, $branchBreakdown, $filters, $query];
+    }
+
+    private function buildCatalogLevel(LedgerReportFilters $filters): AccountTurnoverResult
+    {
+        $query = $this->ledgerQuery($filters);
+        $catalog = new AccountCatalog($filters->catalogFilters());
+        $page = $catalog->page($this->pagination);
+        $accounts = Account::query()
+            ->select(['id', 'parent_id', 'code', 'title', 'level', 'type', 'nature'])
+            ->whereIn('id', array_map(fn (AccountNode $node) => $node->id, $page->data))
+            ->get()
+            ->keyBy('id');
+
+        $ordered = [];
+        foreach ($page->data as $node) {
+            $account = $accounts->get($node->id);
+            if ($account) {
+                $ordered[$account->id] = $account;
+            }
+        }
+
+        $rows = $this->rowsForCatalogAccounts($filters, $query, collect($ordered));
+        $reportTotals = $this->catalogReportTotals($query);
+        $pageTotals = $this->sumRows($rows, onlyLeaves: false);
+        $branchBreakdown = $filters->branchScope->includeBreakdown
+            ? array_values($query->periodTotalsByBranch())
+            : null;
+
+        $summary = [
+            'total_opening_debit' => $reportTotals['opening_debit'],
+            'total_opening_credit' => $reportTotals['opening_credit'],
+            'total_period_debit' => $reportTotals['period_debit'],
+            'total_period_credit' => $reportTotals['period_credit'],
+            'total_closing_debit' => $reportTotals['closing_debit'],
+            'total_closing_credit' => $reportTotals['closing_credit'],
+            'row_count' => $page->pagination->total ?? count($rows),
+        ];
+
+        return new AccountTurnoverResult(
+            meta: ReportMeta::make(
+                'account_turnover',
+                $filters->toArray(),
+                $filters->branchScope->toArray(),
+                $filters->mode->value,
+            ),
+            summary: $summary,
+            data: $this->attachHierarchyCounts($rows, $page->data),
+            pagination: $page->pagination,
+            pageTotals: $pageTotals,
+            reportTotals: $reportTotals,
+            branches: $branchBreakdown,
+        );
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, Account>  $accounts
+     * @return list<AccountTurnoverRow>
+     */
+    private function rowsForCatalogAccounts(LedgerReportFilters $filters, LedgerQuery $query, $accounts): array
+    {
+        if ($accounts->isEmpty()) {
+            return [];
+        }
+
+        $ids = $accounts->keys()->map(fn ($id) => (int) $id)->all();
+        $postingDisplay = AccountHierarchy::displayLevel(AccountHierarchy::postingLevel());
+
+        if ($filters->displayLevel === $postingDisplay) {
+            $pageQuery = (clone $query)->forAccounts($ids);
+            $openings = $pageQuery->openingDebitCreditByAccount();
+            $period = $pageQuery->periodActivityByAccount();
+            $branchByAccount = $filters->branchScope->includeBreakdown
+                ? $pageQuery->periodTotalsByAccountAndBranch()
+                : [];
+
+            return $this->buildRows($accounts, $ids, $openings, $period, $branchByAccount, $filters);
+        }
+
+        return $this->rollPageAncestors($filters, $query, $accounts);
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, Account>  $ancestors
+     * @return list<AccountTurnoverRow>
+     */
+    private function rollPageAncestors(LedgerReportFilters $filters, LedgerQuery $query, $ancestors): array
+    {
+        $ancestorIds = $ancestors->keys()->map(fn ($id) => (int) $id)->all();
+        $catalog = $filters->catalogFilters();
+        $pageQuery = $filters->toLedgerQuery()->constrainAccounts(function ($builder, string $accounts) use ($catalog, $ancestorIds): void {
+            $catalog->constrainPostingAccounts($builder, $accounts);
+            $catalog->restrictToAncestorIds($builder, $accounts, $ancestorIds);
+        });
+        $leafOpenings = $pageQuery->openingDebitCreditByAccount();
+        $leafPeriod = $pageQuery->periodActivityByAccount();
+        $leafIds = array_values(array_unique(array_merge(array_keys($leafOpenings), array_keys($leafPeriod))));
+        $leafToAncestor = $this->mapLeavesToAncestors($leafIds, $ancestorIds);
+
+        $metrics = [];
+        foreach ($ancestorIds as $id) {
+            $metrics[$id] = [
+                'opening_debit' => Amount::zero(),
+                'opening_credit' => Amount::zero(),
+                'period_debit' => Amount::zero(),
+                'period_credit' => Amount::zero(),
+                'transaction_count' => 0,
+                'document_count' => 0,
+                'branches' => [],
+            ];
+        }
+
+        foreach ($leafToAncestor as $leafId => $ancestorId) {
+            if (! isset($metrics[$ancestorId])) {
+                continue;
+            }
+            $opening = $leafOpenings[$leafId] ?? ['opening_debit' => '0.00', 'opening_credit' => '0.00'];
+            $activity = $leafPeriod[$leafId] ?? ['debit' => '0.00', 'credit' => '0.00', 'transaction_count' => 0, 'document_count' => 0];
+            $bucket = &$metrics[$ancestorId];
+            $bucket['opening_debit'] = $bucket['opening_debit']->add($opening['opening_debit']);
+            $bucket['opening_credit'] = $bucket['opening_credit']->add($opening['opening_credit']);
+            $bucket['period_debit'] = $bucket['period_debit']->add($activity['debit']);
+            $bucket['period_credit'] = $bucket['period_credit']->add($activity['credit']);
+            $bucket['transaction_count'] += (int) $activity['transaction_count'];
+            $bucket['document_count'] += (int) $activity['document_count'];
+            unset($bucket);
+        }
+
+        $rows = [];
+        foreach ($ancestors as $account) {
+            $m = $metrics[(int) $account->id];
+            $rows[] = AccountTurnoverRow::fromMetrics(
+                $account,
+                $m['opening_debit'],
+                $m['opening_credit'],
+                $m['period_debit'],
+                $m['period_credit'],
+                $m['transaction_count'],
+                $m['document_count'],
+                $m['branches'],
+            );
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param  list<int>  $leafIds
+     * @param  list<int>  $ancestorIds
+     * @return array<int, int>
+     */
+    private function mapLeavesToAncestors(array $leafIds, array $ancestorIds): array
+    {
+        if ($leafIds === [] || $ancestorIds === []) {
+            return [];
+        }
+
+        $loaded = Account::query()
+            ->select(['id', 'parent_id', 'level'])
+            ->whereIn('id', array_values(array_unique(array_merge($leafIds, $ancestorIds))))
+            ->get()
+            ->keyBy('id');
+
+        $missing = $loaded->pluck('parent_id')->filter()->unique()->diff($loaded->keys());
+        while ($missing->isNotEmpty()) {
+            $more = Account::query()
+                ->select(['id', 'parent_id', 'level'])
+                ->whereIn('id', $missing->all())
+                ->get()
+                ->keyBy('id');
+            if ($more->isEmpty()) {
+                break;
+            }
+            $loaded = $loaded->union($more);
+            $missing = $more->pluck('parent_id')->filter()->unique()->diff($loaded->keys());
+        }
+
+        $ancestorSet = array_flip($ancestorIds);
+        $map = [];
+        foreach ($leafIds as $leafId) {
+            $current = $loaded->get($leafId);
+            while ($current) {
+                if (isset($ancestorSet[(int) $current->id])) {
+                    $map[$leafId] = (int) $current->id;
+                    break;
+                }
+                $current = $current->parent_id ? $loaded->get($current->parent_id) : null;
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function catalogReportTotals(LedgerQuery $query): array
+    {
+        $opening = $query->openingTotalsExact();
+        $period = $query->periodTotalsExact();
+        $openingDebit = Amount::of($opening['opening_debit']);
+        $openingCredit = Amount::of($opening['opening_credit']);
+        $periodDebit = Amount::of($period['debit']);
+        $periodCredit = Amount::of($period['credit']);
+
+        return [
+            'opening_debit' => $openingDebit->toStorage(),
+            'opening_credit' => $openingCredit->toStorage(),
+            'period_debit' => $periodDebit->toStorage(),
+            'period_credit' => $periodCredit->toStorage(),
+            'closing_debit' => $openingDebit->add($periodDebit)->toStorage(),
+            'closing_credit' => $openingCredit->add($periodCredit)->toStorage(),
+        ];
+    }
+
+    /**
+     * @param  list<AccountTurnoverRow>  $rows
+     * @param  list<AccountNode>  $nodes
+     * @return list<AccountTurnoverRow>
+     */
+    private function attachHierarchyCounts(array $rows, array $nodes): array
+    {
+        $byId = [];
+        foreach ($nodes as $node) {
+            $byId[$node->id] = $node;
+        }
+
+        $attached = [];
+        foreach ($rows as $row) {
+            $node = $byId[$row->accountId] ?? null;
+            if (! $node) {
+                $attached[] = $row;
+                continue;
+            }
+
+            $attached[] = new AccountTurnoverRow(
+                accountId: $row->accountId,
+                accountCode: $row->accountCode,
+                accountName: $row->accountName,
+                accountType: $row->accountType,
+                normalBalance: $row->normalBalance,
+                level: $row->level,
+                parentId: $row->parentId,
+                openingDebit: $row->openingDebit,
+                openingCredit: $row->openingCredit,
+                openingBalance: $row->openingBalance,
+                periodDebitTurnover: $row->periodDebitTurnover,
+                periodCreditTurnover: $row->periodCreditTurnover,
+                netMovement: $row->netMovement,
+                closingDebit: $row->closingDebit,
+                closingCredit: $row->closingCredit,
+                closingBalance: $row->closingBalance,
+                transactionCount: $row->transactionCount,
+                documentCount: $row->documentCount,
+                branches: $row->branches,
+                childrenCount: $node->childrenCount,
+                hasChildren: $node->hasChildren,
+                level4Count: $node->level4Count,
+                hasLevel4: $node->hasLevel4,
+            );
+        }
+
+        return $attached;
     }
 
     /**

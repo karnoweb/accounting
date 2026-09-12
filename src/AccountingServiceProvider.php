@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Karnoweb\Accounting;
 
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Karnoweb\Accounting\Models\Document;
 use Karnoweb\Accounting\Observers\DocumentObserver;
@@ -108,6 +109,12 @@ class AccountingServiceProvider extends ServiceProvider
         $this->loadTranslationsFrom(__DIR__ . '/../lang', 'accounting');
 
         Document::observe(DocumentObserver::class);
+
+        if (config('accounting.routes.enabled')) {
+            Route::middleware((array) config('accounting.routes.middleware', ['api']))
+                ->prefix((string) config('accounting.routes.prefix', ''))
+                ->group(__DIR__.'/../routes/accounts.php');
+        }
 
         if ($this->app->runningInConsole()) {
             $this->publishes([

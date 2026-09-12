@@ -74,9 +74,12 @@ use Karnoweb\Accounting\Facades\Accounting;
 | `findByCodeForBranchOrFail(...)` | همان با exception |
 | `findByEntity(string $entityType, int $entityId)` | لینک polymorphic |
 | `getSystemAccount(string $key, ?int $branchId = null)` | حساب سیستمی |
-| `search(array $filters)` | فیلترهای واقعی: `query`, `type`, `level`, `is_active`, `branch_id` |
+| `search(array $filters)` | فیلترهای واقعی: `query`, `type`, `level` (**سطح ذخیره‌شده ۰-پایه**), `is_active`, `branch_id` |
+| `hierarchy(array $input = [])` | درخت عمومی Level 1–3؛ `max_level` پیش‌فرض ۳؛ Level 4 هرگز داخل درخت نیست |
+| `paginate(array $input, $pagination = null)` | فهرست صفحه‌بندی‌شده Level 1–4 (سطح عمومی ۱-پایه) با keyset |
 
 `update()`, `delete()`, `getTree()`, `validateCode()` روی این سرویس **وجود ندارند**.
+سلسله‌مراتب و فهرست: [22-account-hierarchy.md](22-account-hierarchy.md).
 
 ```php
 $account = Accounting::account()->create([

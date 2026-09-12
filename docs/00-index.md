@@ -44,6 +44,7 @@
 4. [09-reports.md](09-reports.md) — منبع داده و منطق گزارش‌ها
 5. [20-financial-statements.md](20-financial-statements.md) — سود و زیان، ترازنامه، شالوده گردش نقد
 6. [21-advanced-reports.md](21-advanced-reports.md) — گردش حساب، دفتر روزنامه، خلاصه روزانه، آمادگی بستن، مقایسه دوره، قرارداد aging
+6b. [22-account-hierarchy.md](22-account-hierarchy.md) — درخت Level 1–3 و فهرست صفحه‌بندی‌شده Level 1–4
 7. [fiscal-year-lifecycle.md](fiscal-year-lifecycle.md) — چرخه کامل سال مالی
 8. [17-multi-active-years-and-opening.md](17-multi-active-years-and-opening.md) — چندسال هم‌زمان، افتتاحیه دیرهنگام و carry موقت (فارسی روان)
 9. [18-monetary-arithmetic.md](18-monetary-arithmetic.md) — نمایش اعشاری مبلغ‌ها، مقایسه، و قانون مشارکت‌کنندگان

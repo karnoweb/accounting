@@ -126,6 +126,14 @@ return [
         'strict_balance' => true,
     ],
 
+    'routes' => [
+        // Package is service-first. Enable to expose GET /accounts and
+        // GET /accounts/hierarchy on the host application.
+        'enabled' => env('ACCOUNTING_ROUTES_ENABLED', false),
+        'prefix' => env('ACCOUNTING_ROUTES_PREFIX', ''),
+        'middleware' => [],
+    ],
+
     'reports' => [
         'per_page' => 50,
         'per_page_min' => 1,

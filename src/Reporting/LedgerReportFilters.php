@@ -86,6 +86,10 @@ final class LedgerReportFilters
         public readonly string $paginationGranularity,
         public readonly ?FiscalYear $fiscalYear,
         public readonly ?AccountingPeriod $accountingPeriod,
+        public readonly ?int $displayLevel = null,
+        public readonly ?int $parentId = null,
+        public readonly ?string $exactCode = null,
+        public readonly ?bool $isActive = null,
     ) {}
 
     /**
@@ -142,6 +146,12 @@ final class LedgerReportFilters
             : $mode === ReportMode::Financial;
 
         $sortBy = (string) ($input['sort_by'] ?? 'account_code');
+        if ($sortBy === 'code') {
+            $sortBy = 'account_code';
+        }
+        if ($sortBy === 'name') {
+            $sortBy = 'account_name';
+        }
         $sortDirection = strtolower((string) ($input['sort_direction'] ?? 'asc'));
         if (! in_array($sortDirection, ['asc', 'desc'], true)) {
             throw new InvalidReportFilterException('sort_direction must be asc or desc.');
@@ -156,6 +166,13 @@ final class LedgerReportFilters
         if (! in_array($granularity, ['document', 'line'], true)) {
             throw new InvalidReportFilterException('pagination_granularity must be document or line.');
         }
+
+        $catalog = AccountQueryFilters::from(array_merge($input, [
+            'sort_by' => in_array($sortBy === 'account_name' ? 'name' : 'code', AccountQueryFilters::SORTS, true)
+                ? ($sortBy === 'account_name' ? 'name' : 'code')
+                : 'code',
+            'sort_direction' => $sortDirection,
+        ]));
 
         return new self(
             fromDate: $from,
@@ -185,6 +202,10 @@ final class LedgerReportFilters
             paginationGranularity: $granularity,
             fiscalYear: $fiscalYear,
             accountingPeriod: $period,
+            displayLevel: $catalog->displayLevel,
+            parentId: $catalog->parentId,
+            exactCode: $catalog->code,
+            isActive: $catalog->isActive,
         );
     }
 
@@ -230,6 +251,10 @@ final class LedgerReportFilters
             paginationGranularity: $this->paginationGranularity,
             fiscalYear: $this->fiscalYear,
             accountingPeriod: $this->accountingPeriod,
+            displayLevel: $this->displayLevel,
+            parentId: $this->parentId,
+            exactCode: $this->exactCode,
+            isActive: $this->isActive,
         );
     }
 
@@ -314,7 +339,34 @@ final class LedgerReportFilters
             'sort_direction' => $this->sortDirection,
             'group_by' => $this->groupBy,
             'pagination_granularity' => $this->paginationGranularity,
+            'level' => $this->displayLevel,
+            'parent_id' => $this->parentId,
+            'code' => $this->exactCode,
+            'is_active' => $this->isActive,
         ];
+    }
+
+    public function catalogFilters(): AccountQueryFilters
+    {
+        $input = [
+            'level' => $this->displayLevel,
+            'parent_id' => $this->parentId,
+            'search' => $this->search,
+            'code' => $this->exactCode,
+            'is_active' => $this->isActive,
+            'sort_by' => $this->sortBy === 'account_name' ? 'name' : ($this->sortBy === 'account_code' ? 'code' : 'code'),
+            'sort_direction' => $this->sortDirection,
+        ];
+
+        if ($this->branchScope->mode === BranchScope::MODE_SINGLE) {
+            $input['branch_id'] = $this->branchScope->branchId;
+        } elseif ($this->branchScope->mode === BranchScope::MODE_SELECTED) {
+            $input['branch_ids'] = $this->branchScope->branchIds;
+        } elseif ($this->branchScope->mode === BranchScope::MODE_ALL) {
+            $input['all_branches'] = true;
+        }
+
+        return AccountQueryFilters::from($input);
     }
 
     private static function resolveFiscalYear(mixed $id): ?FiscalYear

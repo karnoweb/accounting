@@ -207,6 +207,7 @@ Unique: `(fiscal_year_id, start_date, end_date)`. دوره بسته دوباره
 | accounts_branch_id_foreign | branch_id | Foreign | رابطه شعبه |
 | accounts_entity_index | entity_type, entity_id | Index | جستجوی موجودیت |
 | accounts_level_index | level | Index | فیلتر سطح |
+| acc_accounts_level_parent_code_id_index | level, parent_id, code, id | Index | فهرست Level 4 با keyset (`code`, `id`) |
 | accounts_type_index | type | Index | فیلتر نوع |
 | accounts_is_active_index | is_active | Index | فیلتر فعال |
 

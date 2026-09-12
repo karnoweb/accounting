@@ -1,5 +1,28 @@
 # Changelog
 
+## [13.11.3] - 2026-09-12
+
+### Added
+
+- Generic account hierarchy (`Accounting::account()->hierarchy()` /
+  `GET /accounts/hierarchy`) for public Levels 1–3. `max_level` defaults to 3
+  and rejects 4; Level 4 is never loaded into the tree.
+- Paginated account catalog (`Accounting::account()->paginate()` /
+  `GET /accounts`) for Levels 1–4 with keyset pagination (`code`, `id`),
+  `parent_id`, exact `code`, `search`, `is_active`, and BranchScope.
+- Composite index `acc_accounts (level, parent_id, code, id)` for Level-4
+  listing.
+- Optional HTTP routes behind `accounting.routes.enabled`.
+
+### Changed
+
+- Account Turnover accepts `level` (1–4) plus catalog filters. Level 4 pages
+  accounts in the database; Levels 1–3 roll up posting descendants. Default
+  (no `level`) no longer loads the entire chart — only accounts with activity
+  (and ancestors when `rollup_hierarchy` is on).
+- `page_totals` / `report_totals` stay separate; `report_totals` cover every
+  matching account, not the current page.
+
 ## [13.11.2] - 2026-09-12
 
 ### Fixed
